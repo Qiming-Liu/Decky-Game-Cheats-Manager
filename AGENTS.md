@@ -81,7 +81,7 @@ Concise imperative title (~70 chars), blank line, prose paragraphs explaining *w
 
 ## VM development
 
-See `scripts/DEV.md`. `scripts/dev.sh` starts the dependency-free Node host watcher;
+See `scripts/DEV.md`. `pnpm dev` starts the dependency-free Node host watcher directly;
 `dev-session.sh` runs in one remote SSH TTY, owns sudo, symlinks and cleanup. VM
 connection settings live in ignored `.env`; private keys and cached Linux
 wheels live in ignored `.decky-dev/`. Never store passwords in either location.

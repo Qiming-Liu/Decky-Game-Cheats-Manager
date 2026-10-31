@@ -14,11 +14,14 @@ flock -n 9 || { echo '[dev] Another development session is running.' >&2; exit 1
 test -d "$PLUGIN" || { echo '[dev] Install the ZIP first.' >&2; exit 1; }
 linked=0
 cleanup() {
-    trap - EXIT HUP INT TERM
+    trap - EXIT
+    # A second Ctrl+C or lost SSH TTY must not interrupt file restoration.
+    trap '' HUP INT TERM
     set +e
     echo '[dev] Restoring the installed plugin…'
     if (( linked )); then
-        systemctl stop plugin_loader
+        echo '[dev] Stopping Decky (up to 10 seconds)…'
+        timeout --kill-after=1s 10s systemctl stop plugin_loader || echo '[dev] Decky stop is still pending; continuing file restoration.'
         for name in "${ENTRIES[@]}"; do
             target="$PLUGIN/$name"
             backup="$target.dev-backup"
@@ -30,8 +33,12 @@ cleanup() {
             fi
         done
         rm -f -- "$OVERRIDE"
-        systemctl daemon-reload
-        systemctl start plugin_loader
+        timeout --kill-after=1s 3s systemctl daemon-reload
+        if [[ $(timeout --kill-after=1s 2s systemctl is-system-running 2>/dev/null) != stopping ]]; then
+            echo '[dev] Requesting Decky startup…'
+            timeout --kill-after=1s 3s systemctl start --no-block plugin_loader
+        fi
+        echo '[dev] Installed plugin restored; development session closed.'
     fi
 }
 trap cleanup EXIT

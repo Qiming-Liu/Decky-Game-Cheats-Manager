@@ -6,7 +6,7 @@
   "scripts": {
     "build": "rollup -c",
     "watch": "rollup -c -w",
-    "dev": "bash scripts/dev.sh",
+    "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --noEmit -p .",
     "test": "pnpm run test:frontend && pnpm run test:backend",
     "test:frontend": "node --test tests/frontend/*.test.mjs tests/tooling/*.test.mjs",
