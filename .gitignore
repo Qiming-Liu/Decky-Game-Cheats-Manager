@@ -1,0 +1,23 @@
+node_modules/
+dist/
+out/
+package/
+*.log
+__pycache__/
+*.pyc
+py_modules/_vendor/
+py_modules/secret_config.py
+
+# Generated upstream code and private authentication data
+py_modules/_gcm_core/
+db/
+secret_config.py
+
+# Local VM development configuration, identity and dependency cache
+.decky-dev.json
+.decky-dev/
+
+# Personal environment files; only the blank template is committed
+.env
+.env.*
+!.env.example

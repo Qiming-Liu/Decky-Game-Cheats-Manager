@@ -1,0 +1,101 @@
+name: PR Build & Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    name: Frontend build & type-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python for GCM generation
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Type-check
+        run: pnpm exec tsc --noEmit
+
+      - name: Frontend unit tests
+        run: node --test tests/frontend/*.test.mjs tests/tooling/*.test.mjs
+
+      - name: Build
+        run: pnpm run build
+
+  backend:
+    name: Backend syntax & unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          # Same CPython as Decky Loader's bundled interpreter, since the
+          # vendored rapidfuzz wheel is built per CPython version.
+          python-version: '3.14'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Vendor Python dependencies
+        run: bash scripts/vendor_deps.sh
+
+      - name: Generate GCM core
+        run: python scripts/build_gcm_core.py
+
+      - name: Syntax-check every module
+        run: |
+          python -m py_compile main.py
+          find py_modules -path py_modules/_vendor -prune -o -name '*.py' -print0 | xargs -0 python -m py_compile
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  plugin-manifest:
+    name: Validate plugin.json
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Check plugin.json is valid JSON with required fields
+        run: |
+          python - <<'PY'
+          import json
+          with open("plugin.json") as f:
+              data = json.load(f)
+          for field in ("name", "author", "flags", "api_version"):
+              assert field in data, f"plugin.json missing required field: {field}"
+          print("plugin.json OK:", data["name"])
+          PY

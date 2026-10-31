@@ -1,0 +1,149 @@
+name: Build & Publish
+
+# Prepare the version, build/test/package, then push the version and tag atomically.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Version bump'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      prerelease:
+        description: 'Mark as a pre-release'
+        required: false
+        type: boolean
+        default: false
+      notes:
+        description: "What's new in this release (used as the release notes summary; leave blank for a generic note)"
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Bump version
+        id: bump
+        shell: bash
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "${{ inputs.release_type }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          NEW="$MAJOR.$MINOR.$PATCH"
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            p.version = '$NEW';
+            fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Bumping $CURRENT -> $NEW (${{ inputs.release_type }})"
+
+      - name: Setup Python for GCM generation
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Inject GCM data-source secret
+        env:
+          # base64 of the author-provided secret_config.py (see
+          # py_modules/data_source.py). Set in repo Settings → Secrets and
+          # variables → Actions. Required to fetch the release catalog.
+          GCM_SECRET_CONFIG: ${{ secrets.GCM_SECRET_CONFIG }}
+        run: |
+          if [ -n "$GCM_SECRET_CONFIG" ]; then
+            echo "$GCM_SECRET_CONFIG" | base64 -d > py_modules/secret_config.py
+            chmod 600 py_modules/secret_config.py
+            echo "GCM authentication configured for this build."
+          else
+            echo "GCM_SECRET_CONFIG is required to fetch the release catalog."
+            exit 1
+          fi
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Vendor Python dependencies
+        run: bash scripts/vendor_deps.sh
+
+      - name: Verify
+        run: |
+          pnpm run typecheck
+          node --test tests/frontend/*.test.mjs tests/tooling/*.test.mjs
+          python -m unittest discover -s tests -v
+
+      - name: Fetch release catalog
+        run: python scripts/fetch_release_database.py
+
+      - name: Resolve tag
+        id: vars
+        shell: bash
+        run: |
+          TAG="v${{ steps.bump.outputs.version }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: $TAG"
+
+      - name: Package protected plugin
+        run: python scripts/package_release.py --output "DeckyGCM.${{ steps.vars.outputs.tag }}.zip"
+
+      - name: Commit and tag version bump
+        id: release_commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "Release v${{ steps.bump.outputs.version }}"
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push --atomic origin HEAD:${{ github.ref_name }} "v${{ steps.bump.outputs.version }}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: Decky Game Cheats Manager ${{ steps.vars.outputs.tag }}
+          body: |
+            ${{ inputs.notes || format('Routine build from commit `{0}`, no functional changes called out.', steps.release_commit.outputs.sha) }}
+
+            Install via Decky Loader's "Install from ZIP" option, or extract
+            `DeckyGCM.${{ steps.vars.outputs.tag }}.zip` into your Decky plugins directory.
+          prerelease: ${{ inputs.prerelease }}
+          files: DeckyGCM.${{ steps.vars.outputs.tag }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
