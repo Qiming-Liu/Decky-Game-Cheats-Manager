@@ -3,10 +3,9 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-import uuid
 from pathlib import Path
 import decky
-from library_storage import METADATA, write_json, remove as _remove
+from library_storage import remove as _remove
 
 
 def migrate(source: Path, target: Path, save):
@@ -75,23 +74,3 @@ def publish(content: Path, name: str, root: Path, original_root: Path, commit=No
                 raise
             decky.logger.warning("Trainer installed; temporary cleanup failed.")
     return target
-
-
-def import_file(original: Path, root: Path, app_id: str, game_name: str) -> dict:
-    # Publish files and their game association together without replacing existing files.
-    committed = False
-    try:
-        with tempfile.TemporaryDirectory(prefix=".gcm-import-", dir=root) as temporary:
-            content = Path(temporary) / "content"
-            content.mkdir()
-            shutil.copy2(original, content / original.name)
-            write_json(content / METADATA, {"schema_version": 1, "trainer_name": original.stem,
-                       "game_name": game_name, "app_ids": [app_id], "origin": "Local file"})
-            target = root / f"Imported [{uuid.uuid4().hex[:12]}]"
-            content.rename(target)
-            committed = True
-    except OSError:
-        if not committed:
-            raise
-        decky.logger.warning("Imported trainer; temporary cleanup failed.")
-    return {"path": str(target), "filename": original.name}

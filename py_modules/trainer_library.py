@@ -18,6 +18,8 @@ from trainer_cache import TRASH_RECORD, TRASH_MAX_AGE, content_hashes
 DEFAULT_DIRECTORY = os.path.join(decky.DECKY_USER_HOME, "DeckyGCM")
 SETTINGS_PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "library.json")
 TRAINER_EXTENSIONS = {".exe", ".bat", ".ct"}
+PROGRAM_EXTENSIONS = {".exe", ".bat"}
+LINKED_ORIGIN = "Linked file"
 _lock = threading.RLock()
 
 
@@ -42,7 +44,8 @@ def set_directory(path: str) -> str:
             return str(target)
         if source.is_relative_to(target) or target.is_relative_to(source):
             raise ValueError("library_nested")
-        library_transactions.migrate(source, target, lambda: write_json(SETTINGS_PATH, {"directory": str(target)}))
+        library_transactions.migrate(
+            source, target, lambda: write_json(SETTINGS_PATH, {**read_json(SETTINGS_PATH), "directory": str(target)}))
     return str(target)
 
 
@@ -151,7 +154,37 @@ def _scan(app_id: str = "", game_name: str = "") -> dict:
         }
         if not app_id or _matches(entry, app_id, names):
             entries.append(entry)
+    shown = [Path(item["path"]) for item in entries]
+    for link in _links():
+        path = Path(link["path"])
+        if app_id and link["app_id"] != app_id:
+            continue
+        # A file inside a listed library entry is already reachable through it.
+        if any(path == folder or path.is_relative_to(folder) for folder in shown):
+            continue
+        entries.append({
+            "id": _link_id(link), "name": path.stem, "path": str(path), "files": [path.name],
+            "trainer_id": "", "game_name": link["game_name"], "app_ids": [link["app_id"]],
+            "version": "", "origin": LINKED_ORIGIN, "missing": not path.is_file(),
+        })
     return {"directory": str(root), "trainers": entries}
+
+
+def _links() -> list[dict]:
+    value = read_json(SETTINGS_PATH).get("linked")
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict) and isinstance(item.get("path"), str)
+            and isinstance(item.get("app_id"), str) and item["app_id"].isascii() and item["app_id"].isdigit()
+            and isinstance(item.get("game_name", ""), str)]
+
+
+def _link_id(link: dict) -> str:
+    return "link-" + hashlib.sha256(f"{link['app_id']}/{link['path']}".encode()).hexdigest()[:20]
+
+
+def _save_links(links: list[dict]) -> None:
+    write_json(SETTINGS_PATH, {**read_json(SETTINGS_PATH), "linked": links})
 
 
 def entry(entry_id: str, expected_directory: str) -> dict:
@@ -168,28 +201,40 @@ def executable(entry_id: str, filename: str, expected_directory: str) -> str:
         item = entry(entry_id, expected_directory)
         if filename not in item["files"]:
             raise ValueError("Unknown trainer file.")
+        if item["origin"] == LINKED_ORIGIN:
+            target = Path(item["path"]).resolve(strict=True)
+            if not target.is_file() or target.suffix.lower() not in PROGRAM_EXTENSIONS:
+                raise ValueError("Choose an .exe or .bat program. Cheat Tables require Cheat Engine.")
+            return str(target)
         base = Path(item["path"])
         target = (base / filename if base.is_dir() else base).resolve(strict=True)
         root = Path(directory()).resolve(strict=True)
-        if not target.is_relative_to(root) or not target.is_file() or target.suffix.lower() not in {".exe", ".bat"}:
+        if not target.is_relative_to(root) or not target.is_file() or target.suffix.lower() not in PROGRAM_EXTENSIONS:
             raise ValueError("Choose an .exe or .bat program. Cheat Tables require Cheat Engine.")
         return str(target)
 
 
-def import_file(source: str, app_id: str, game_name: str, expected_directory: str) -> dict:
+def link_file(source: str, app_id: str, game_name: str, expected_directory: str) -> dict:
+    """Use a local program where it is; nothing is copied."""
     with _lock:
         if os.path.realpath(expected_directory) != os.path.realpath(directory()):
             raise ValueError("library_changed")
-        original = Path(source).expanduser().resolve(strict=True)
-        if not original.is_file() or original.suffix.lower() != ".exe":
-            raise ValueError("Choose an .exe file.")
-        root = Path(directory()).resolve(strict=True)
-        return library_transactions.import_file(original, root, app_id, game_name)
+        path = Path(source).expanduser().resolve(strict=True)
+        if not path.is_file() or path.suffix.lower() not in PROGRAM_EXTENSIONS:
+            raise ValueError("Choose an .exe or .bat program. Cheat Tables require Cheat Engine.")
+        links = [item for item in _links() if not (item["app_id"] == app_id and item["path"] == str(path))]
+        links.append({"path": str(path), "app_id": app_id, "game_name": game_name})
+        _save_links(links)
+        return {"path": str(path), "filename": path.name}
 
 
 def delete(entry_id: str, expected_directory: str, app_id: str) -> None:
     with _lock:
         item = entry(entry_id, expected_directory)
+        if item["origin"] == LINKED_ORIGIN:
+            # Only forget the link; the user's own file stays untouched.
+            _save_links([link for link in _links() if _link_id(link) != entry_id])
+            return
         if item["app_ids"] and any(value != app_id for value in item["app_ids"]):
             raise ValueError("This trainer is shared with another game and cannot be deleted here.")
         root = Path(directory()).resolve(strict=True)

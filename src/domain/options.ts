@@ -40,8 +40,13 @@ const areValidRawWords = (words: readonly string[]): boolean => {
   return parsed !== undefined && parsed.length === words.length && parsed.every((word, index) => word === words[index]);
 };
 
-const isValidFlag = (flag: string): boolean =>
-  flag.startsWith("-") && flag !== "-" && flag !== "--" && unquotedWord.test(flag);
+// Game arguments start with "-" or, for some engines, "+" (e.g. "+fps_max 60").
+export const isFlagWord = (word: string): boolean => /^[-+]/.test(word) && !["-", "--", "+"].includes(word);
+const isValidFlag = (flag: string): boolean => isFlagWord(flag) && unquotedWord.test(flag);
+const compareNames = (left: string, right: string): number => {
+  const a = left.toUpperCase(), b = right.toUpperCase();
+  return a < b ? -1 : a > b ? 1 : left < right ? -1 : left > right ? 1 : 0;
+};
 
 export const isValidLaunchOption = (definition: LaunchOptionDefinition): boolean => {
   switch (definition.kind) {
@@ -61,7 +66,7 @@ export const isValidLaunchOption = (definition: LaunchOptionDefinition): boolean
       return (
         isValidFlag(definition.flag) &&
         areValidRawWords(definition.argv) &&
-        definition.argv.every((word) => !word.startsWith("-") && word !== "%command%")
+        definition.argv.every((word) => !isFlagWord(word) && word !== "%command%")
       );
   }
 };
@@ -94,7 +99,7 @@ export const parseLaunchOptionDefinition = (source: string): LaunchOptionDefinit
 
   const [first, ...argv] = words;
   if (first.includes("=")) return undefined;
-  const definition: LaunchOptionDefinition = first.startsWith("-")
+  const definition: LaunchOptionDefinition = isFlagWord(first)
     ? { kind: "argument", flag: first, argv }
     : { kind: "prefix", command: first, argv };
   return isValidLaunchOption(definition) ? definition : undefined;
@@ -188,7 +193,7 @@ const argumentSlotEdits = (
     let consumed = 0;
     while (consumed < definition.argv.length) {
       const next = parsed.arguments[index + consumed + 1];
-      if (!next || next.raw.startsWith("-")) break;
+      if (!next || isFlagWord(next.raw)) break;
       end = next.span.end;
       consumed++;
     }
@@ -254,7 +259,11 @@ const replacementDeletionEdits = (parsed: ParsedLaunchOptions, definition: Launc
 const insertionEdit = (parsed: ParsedLaunchOptions, definition: LaunchOptionDefinition): TextEdit => {
   const rendered = renderLaunchOptionDefinition(definition);
   if (parsed.implicitMarker) {
-    const replacement = definition.kind === "argument" ? `%command% ${rendered}` : `${rendered} %command%`;
+    // Words without a marker are the game's arguments; keep them after it.
+    const args = parsed.arguments.map((word) => word.raw).join(" ");
+    const replacement = definition.kind === "argument"
+      ? (args ? `${args} ${rendered}` : `%command% ${rendered}`)
+      : `${rendered} %command%${args ? ` ${args}` : ""}`;
     return { span: { start: 0, end: parsed.source.length }, replacement };
   }
   if (!parsed.marker) throw new Error("editable launch options must have a marker");
@@ -331,6 +340,80 @@ export class LaunchOptions {
 
   hasEnvironment(name: string): boolean {
     return this.parsed.assignments.some((assignment) => assignment.name === name);
+  }
+
+  /**
+   * The same launch options with environment assignments deduplicated (the
+   * last one wins, as in the shell) and sorted alphabetically. Prefix commands
+   * and game arguments keep their order because it changes their meaning.
+   */
+  canonical(): string {
+    if (!this.editable) return this.source;
+    const { source, assignments, prefixes, arguments: args } = this.parsed;
+    const latest = new Map<string, string>();
+    for (const assignment of assignments) {
+      latest.delete(assignment.name);
+      latest.set(assignment.name, source.slice(assignment.span.start, assignment.span.end));
+    }
+    const environment = [...latest.entries()].sort(([left], [right]) => compareNames(left, right)).map(([, raw]) => raw);
+    const commands = prefixes.map((prefix) => prefix.words.map((word) => word.raw).join(" ")).join(" -- ");
+    const trailing = prefixes[prefixes.length - 1]?.separatorAfter ? " --" : "";
+    const argv = args.map((word) => word.raw);
+    // Nothing before the marker means the words are plain game arguments.
+    if (environment.length === 0 && !commands) return argv.join(" ");
+    return [...environment, ...(commands ? [commands + trailing] : []), "%command%", ...argv].join(" ");
+  }
+
+  /**
+   * The words of the launch options in order, grouped the way definitions()
+   * groups them, so each piece can be shown with the option it belongs to.
+   */
+  segments(): { text: string; definition?: LaunchOptionDefinition }[] {
+    if (!this.editable) return this.source ? [{ text: this.source }] : [];
+    const { source, assignments, prefixes, marker, arguments: args } = this.parsed;
+    const pieces: { text: string; definition?: LaunchOptionDefinition }[] = assignments.map((assignment) => ({
+      text: source.slice(assignment.span.start, assignment.span.end),
+      ...(assignment.value === undefined ? {} : { definition: { kind: "environment" as const, name: assignment.name, value: assignment.value } }),
+    }));
+    prefixes.forEach((prefix, index) => {
+      if (index > 0) pieces.push({ text: "--" });
+      const [command, ...argv] = prefix.words.map((word) => word.raw);
+      pieces.push({ text: [command, ...argv].join(" "), definition: { kind: "prefix", command, argv } });
+    });
+    if (prefixes[prefixes.length - 1]?.separatorAfter) pieces.push({ text: "--" });
+    if (marker) pieces.push({ text: marker.raw });
+    for (const word of args) {
+      const last = pieces[pieces.length - 1];
+      if (!isFlagWord(word.raw) && last?.definition?.kind === "argument") {
+        last.text += ` ${word.raw}`;
+        last.definition = { ...last.definition, argv: [...last.definition.argv, word.raw] };
+      } else pieces.push(isFlagWord(word.raw) ? { text: word.raw, definition: { kind: "argument", flag: word.raw, argv: [] } } : { text: word.raw });
+    }
+    return pieces.map((piece) => piece.definition && !isValidLaunchOption(piece.definition) ? { text: piece.text } : piece);
+  }
+
+  /**
+   * Splits the launch options into definitions that can be toggled one by one.
+   * Assignments with dynamic values and arguments without a flag stay out.
+   */
+  definitions(): LaunchOptionDefinition[] {
+    if (!this.editable) return [];
+    const result: LaunchOptionDefinition[] = [];
+    for (const assignment of this.parsed.assignments) {
+      if (assignment.value !== undefined) result.push({ kind: "environment", name: assignment.name, value: assignment.value });
+    }
+    for (const prefix of this.parsed.prefixes) {
+      const [command, ...argv] = prefix.words.map((word) => word.raw);
+      result.push({ kind: "prefix", command, argv });
+    }
+    let current: { flag: string; argv: string[] } | undefined;
+    for (const word of this.parsed.arguments) {
+      if (isFlagWord(word.raw)) {
+        current = { flag: word.raw, argv: [] };
+        result.push({ kind: "argument", ...current });
+      } else current?.argv.push(word.raw);
+    }
+    return result.filter(isValidLaunchOption);
   }
 
   edit(edits: readonly LaunchOptionsEdit[]): LaunchOptionsEditResult {

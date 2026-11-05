@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -42,10 +41,12 @@ class LibraryTest(LibraryCase):
                 self.assertIn(Path(item["path"]), (Path(executable), Path(executable).parent))
 
     def test_migration_preserves_metadata_and_support_files(self):
-        source = self.root / "Trainer.exe"
-        source.write_bytes(b"program")
-        result = trainer_library.import_file(str(source), "42", "Example", str(self.library))
-        (Path(result["path"]) / "support.dll").write_bytes(b"support")
+        folder = self.library / "Imported"
+        folder.mkdir()
+        (folder / "Trainer.exe").write_bytes(b"program")
+        (folder / "support.dll").write_bytes(b"support")
+        trainer_library.write_json(folder / trainer_library.METADATA,
+                                   {"schema_version": 1, "game_name": "Example", "app_ids": ["42"]})
         target = self.root / "new"
         target.mkdir()
         trainer_library.set_directory(str(target))
@@ -88,61 +89,58 @@ class LibraryTest(LibraryCase):
             with self.assertRaisesRegex(ValueError, "library_nested"):
                 trainer_library.set_directory(str(target))
 
-    def test_import_copies_and_binds_without_replacing_source(self):
-        source = self.root / "Trainer.exe"
+    def test_local_file_is_used_in_place_and_removing_it_keeps_the_file(self):
+        source = self.root / "Downloads" / "My Tool.bat"
+        source.parent.mkdir()
         source.write_bytes(b"program")
-        first = trainer_library.import_file(str(source), "42", "Example", str(self.library))
-        second = trainer_library.import_file(str(source), "42", "Example", str(self.library))
-        self.assertNotEqual(first["path"], second["path"])
-        self.assertEqual(source.read_bytes(), b"program")
+        result = trainer_library.link_file(str(source), "42", "Example", str(self.library))
+        self.assertEqual(Path(result["path"]), source.resolve())
+        self.assertEqual(list(self.library.iterdir()), [])
+        trainer_library.link_file(str(source), "42", "Example", str(self.library))
         entries = trainer_library.scan("42", "Unrelated name")["trainers"]
-        self.assertEqual(len(entries), 2)
+        self.assertEqual(len(entries), 1)
         self.assertEqual(trainer_library.scan("43", "Example")["trainers"], [])
-        trainer_library.delete(entries[0]["id"], str(self.library), "42")
-        self.assertEqual(len(trainer_library.scan()["trainers"]), 1)
+        item = entries[0]
+        self.assertEqual(trainer_library.executable(item["id"], item["files"][0], str(self.library)), str(source.resolve()))
+        source.unlink()
+        self.assertTrue(trainer_library.scan("42")["trainers"][0]["missing"])
+        source.write_bytes(b"program")
+        trainer_library.delete(item["id"], str(self.library), "42")
+        self.assertEqual(trainer_library.scan("42")["trainers"], [])
         self.assertEqual(source.read_bytes(), b"program")
 
-    def test_import_accepts_uppercase_exe_and_rejects_other_file_types(self):
-        for extension in (".bat", ".CT", ".zip", ".txt"):
-            source = self.root / f"Trainer{extension}"
+    def test_local_file_rejects_tables_and_other_types(self):
+        for name in ("Trainer.CT", "Trainer.zip"):
+            source = self.root / name
             source.write_bytes(b"original")
-            with self.assertRaisesRegex(ValueError, "Choose an .exe file"):
-                trainer_library.import_file(str(source), "42", "Example", str(self.library))
-            self.assertEqual(source.read_bytes(), b"original")
-        self.assertEqual(list(self.library.iterdir()), [])
+            with self.assertRaises(ValueError):
+                trainer_library.link_file(str(source), "42", "Example", str(self.library))
         source = self.root / "Trainer.EXE"
         source.write_bytes(b"program")
-        trainer_library.import_file(str(source), "42", "Example", str(self.library))
+        trainer_library.link_file(str(source), "42", "Example", str(self.library))
         self.assertEqual(len(trainer_library.scan("42")["trainers"]), 1)
-        self.assertEqual(trainer_library.scan("43")["trainers"], [])
 
-    def test_import_failure_does_not_publish_partial_installation(self):
+    def test_local_file_inside_library_is_not_listed_twice(self):
+        folder = self.library / "Example Trainer"
+        folder.mkdir()
+        (folder / "Trainer.exe").write_bytes(b"program")
+        trainer_library.write_json(folder / trainer_library.METADATA, {"schema_version": 1, "app_ids": ["42"]})
+        trainer_library.link_file(str(folder / "Trainer.exe"), "42", "Example", str(self.library))
+        self.assertEqual(len(trainer_library.scan("42")["trainers"]), 1)
+
+    def test_links_survive_library_folder_change(self):
         source = self.root / "Trainer.exe"
         source.write_bytes(b"program")
-        with patch("library_transactions.shutil.copy2", side_effect=OSError("copy failed")):
-            with self.assertRaises(OSError):
-                trainer_library.import_file(str(source), "42", "Example", str(self.library))
-        self.assertEqual(list(self.library.iterdir()), [])
-
-    def test_import_cleanup_failure_does_not_report_committed_copy_as_failed(self):
-        source = self.root / "Trainer.exe"
-        source.write_bytes(b"program")
-        real_temporary = tempfile.TemporaryDirectory
-
-        class FailingCleanup(real_temporary):
-            def __exit__(self, *args):
-                super().__exit__(*args)
-                raise OSError("cleanup failed")
-
-        with patch("library_transactions.tempfile.TemporaryDirectory", FailingCleanup):
-            result = trainer_library.import_file(str(source), "42", "Example", str(self.library))
-        self.assertTrue((Path(result["path"]) / "Trainer.exe").is_file())
+        trainer_library.link_file(str(source), "42", "Example", str(self.library))
+        target = self.root / "new"
+        target.mkdir()
+        trainer_library.set_directory(str(target))
         self.assertEqual(len(trainer_library.scan("42")["trainers"]), 1)
 
     def test_management_rejects_stale_directory_and_unknown_files(self):
         source = self.root / "Trainer.exe"
         source.write_bytes(b"program")
-        trainer_library.import_file(str(source), "42", "Example", str(self.library))
+        trainer_library.link_file(str(source), "42", "Example", str(self.library))
         item = trainer_library.scan()["trainers"][0]
         with self.assertRaisesRegex(ValueError, "library_changed"):
             trainer_library.delete(item["id"], str(self.root), "42")

@@ -1,3 +1,4 @@
+import type { CustomOption } from "../domain/custom";
 import { callable } from "@decky/api";
 
 export interface DatabaseStatus {
@@ -64,7 +65,11 @@ export interface LocalTrainer {
   app_ids: string[];
   version: string;
   origin: string;
+  /** Linked local file that no longer exists. */
+  missing?: boolean;
 }
+
+export const LINKED_ORIGIN = "Linked file";
 
 export interface LibraryResponse {
   success: boolean;
@@ -93,8 +98,11 @@ async function runTrainerAction(action: "import" | "delete" | "executable" | "ca
   return result;
 }
 
-export async function importTrainer(context: LibraryContext & { source: string; gameName: string }): Promise<void> {
-  await runTrainerAction("import", context, "", "", context.source, context.gameName);
+/** Uses a local program in place and returns its resolved path. */
+export async function linkTrainer(context: LibraryContext & { source: string; gameName: string }): Promise<string> {
+  const result = await runTrainerAction("import", context, "", "", context.source, context.gameName);
+  if (!result.path) throw new Error("unknownFile");
+  return result.path;
 }
 
 export async function deleteTrainer(context: EntryContext): Promise<void> {
@@ -111,4 +119,16 @@ export async function cancelDownload(context: { appId: string; jobId: string }):
   const result = await runTrainerAction("cancel", { appId: context.appId, directory: "" }, context.jobId);
   if (!result.job) throw new Error("unknownDownload");
   return result.job;
+}
+
+type SavedOption = CustomOption;
+
+export const getCustomOptions = callable<[], { options: SavedOption[] }>("get_custom_options");
+const saveCustomOptionsCall = callable<[options: SavedOption[]], { success: boolean; error?: string; options?: SavedOption[] }>(
+  "save_custom_options",
+);
+export async function saveCustomOptions(options: SavedOption[]): Promise<SavedOption[]> {
+  const result = await saveCustomOptionsCall(options);
+  if (!result.success || !result.options) throw new Error(result.error || "unknownError");
+  return result.options;
 }

@@ -71,9 +71,10 @@ class CacheTest(LibraryCase):
         })
         trainer_library.cleanup_trash()
         self.assertTrue(item.exists())
-        source = self.root / "Trainer.exe"
-        source.write_bytes(b"program")
-        trainer_library.import_file(str(source), "42", "Example", str(self.library))
+        folder = self.library / "Managed"
+        folder.mkdir()
+        (folder / "Trainer.exe").write_bytes(b"program")
+        trainer_library.write_json(folder / trainer_library.METADATA, {"schema_version": 1, "app_ids": ["42"]})
         entry = trainer_library.scan()["trainers"][0]
         with self.assertRaisesRegex(ValueError, "not owned"):
             trainer_library.delete(entry["id"], str(self.library), "42")

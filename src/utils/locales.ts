@@ -13,6 +13,8 @@ function translations(messages: Messages) {
       : messages.downloading.replace("{percent}", () => String(percent)),
     downloadedTitle: (count: number) => messages.downloadedTitle.replace("{count}", () => String(count)),
     deleteDescription: (name: string) => messages.deleteDescription.replace("{name}", () => name),
+    enabledCount: (count: number) => messages.enabledCount.replace("{count}", () => String(count)),
+    runningWith: (name: string) => messages.runningWith.replace("{name}", () => name),
   };
 }
 

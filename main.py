@@ -17,6 +17,7 @@ import trainer_download  # noqa: E402
 import trainer_search  # noqa: E402
 import trainer_library  # noqa: E402
 import steam_library  # noqa: E402
+import custom_options  # noqa: E402
 
 
 class Plugin:
@@ -114,13 +115,23 @@ class Plugin:
             asyncio.to_thread(trainer_library.directory), asyncio.to_thread(trainer_db.status))
         return {"directory": directory, "database": database}
 
+    async def get_custom_options(self):
+        return {"options": await asyncio.to_thread(custom_options.load)}
+
+    @action_log.log_call
+    async def save_custom_options(self, options: list):
+        try:
+            return {"success": True, "options": await asyncio.to_thread(custom_options.save, options)}
+        except (OSError, ValueError) as error:
+            return {"success": False, "error": str(error)}
+
     async def manage_trainer(self, action: str, app_id: str, expected_directory: str,
                              entry_id: str = "", filename: str = "", source: str = "", game_name: str = ""):
         if not app_id or not app_id.isascii() or not app_id.isdigit():
             return {"success": False, "error": "invalid_app_id"}
         try:
             if action == "import":
-                result = await asyncio.to_thread(trainer_library.import_file, source, app_id, game_name, expected_directory)
+                result = await asyncio.to_thread(trainer_library.link_file, source, app_id, game_name, expected_directory)
             elif action == "delete":
                 await asyncio.to_thread(trainer_library.delete, entry_id, expected_directory, app_id)
                 result = {}
