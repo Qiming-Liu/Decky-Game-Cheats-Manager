@@ -1,0 +1,13 @@
+# Runtime deps of gcm/src/scripts/search_index.py (pypinyin, rapidfuzz, zhon) and
+# of an upstream-style secret_config.signed_get (requests), vendored into
+# py_modules/_vendor/ by scripts/vendor_deps.sh (Decky's bundled Python has no pip).
+pypinyin
+rapidfuzz
+requests
+zhon
+
+# Pure-Python bridge to SteamOS libarchive (7z/RAR extraction).
+libarchive-c>=5.3,<6
+
+# Upstream Retry uses backoff_jitter (urllib3 2+).
+urllib3>=2,<3

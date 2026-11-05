@@ -1,0 +1,11 @@
+{
+  "name": "DeckyGCM",
+  "author": "Qiming-Liu",
+  "flags": ["debug"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["trainer", "cheats"],
+    "description": "Search and download game trainers from Game Cheats Manager's catalog (FLiNG, XiaoXing, Cheat Tables, GCM), from the Quick Access menu or a game's library context menu.",
+    "image": ""
+  }
+}
