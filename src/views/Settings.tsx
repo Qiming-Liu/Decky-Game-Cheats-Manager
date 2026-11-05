@@ -1,9 +1,23 @@
 import { useTranslations, errorMessage } from "../utils/i18n";
 import { FileSelectionType, openFilePicker } from "@decky/api";
 import { ButtonItem, PanelSection, PanelSectionRow, useQuickAccessVisible } from "@decky/ui";
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { cleanupTrash, getLibrarySettings, refreshDatabase, setLibraryDirectory, DatabaseStatus } from "../utils/backend";
 import { invalidateLibrary } from "../hooks/useLibrary";
+import { useDownloads } from "../hooks/useDownloads";
+import { colors, jobStateLabel, mono } from "./shell";
+
+/** One card of the Quick Access panel: title, current value, hint, one action. */
+function Card({ title, children, hint, action }: { title: ReactNode; children: ReactNode; hint?: ReactNode; action?: ReactNode }) {
+  return <PanelSectionRow>
+    <div style={{ padding: "10px 12px 4px", borderRadius: 4, background: "rgba(0,0,0,.28)", marginBottom: 8 }}>
+      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 13, color: colors.text }}>{children}</div>
+      {hint && <div style={{ fontSize: 11, color: colors.dim, marginTop: 4 }}>{hint}</div>}
+      {action && <div style={{ margin: "6px -12px 0" }}>{action}</div>}
+    </div>
+  </PanelSectionRow>;
+}
 
 export default function Settings() {
   const t = useTranslations();
@@ -15,6 +29,7 @@ export default function Settings() {
   const [database, setDatabase] = useState<DatabaseStatus>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const active = useDownloads().filter(job => ["queued", "downloading", "extracting"].includes(job.state));
   useEffect(() => {
     let active = true;
     getLibrarySettings().then(value => {
@@ -49,16 +64,31 @@ export default function Settings() {
   };
   const updatedAt = Math.max(0, ...Object.values(database?.files || {}).filter((value): value is number =>
     typeof value === "number" && Number.isFinite(value)));
+  const dot = (color: string) => <span aria-hidden style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color, marginRight: 8, verticalAlign: 1 }} />;
   return <PanelSection title={t.settings}>
-    <PanelSectionRow><div style={{ fontSize: 14 }}>{t.folder}</div>
-      <div style={{ fontSize: 12, opacity: .7, overflowWrap: "anywhere", marginTop: 6 }}>{directory || t.loading}</div>
-    </PanelSectionRow>
-    <PanelSectionRow><ButtonItem layout="below"
-      disabled={busy || !directory} onClick={() => { void choose(); }}>{t.chooseFolder}</ButtonItem></PanelSectionRow>
-    <PanelSectionRow><ButtonItem layout="below" label={t.catalog}
-      disabled={busy || !database} onClick={() => { void update(); }}>{t.updateDatabase}</ButtonItem></PanelSectionRow>
-    <PanelSectionRow><div style={{ fontSize: 12, opacity: .7 }}>{t.lastUpdated}: {updatedAt
-      ? new Date(updatedAt * 1000).toLocaleString() : t.neverUpdated}</div></PanelSectionRow>
-    {message && <PanelSectionRow><div role="status" style={{ fontSize: 13, overflowWrap: "anywhere" }}>{errorMessage(message, t)}</div></PanelSectionRow>}
+    <Card title={t.folder} hint={t.pathMoveHint}
+      action={<ButtonItem layout="below" disabled={busy || !directory} onClick={() => { void choose(); }}>{t.changePath}</ButtonItem>}>
+      <span style={{ ...mono, fontSize: 13 }}>{directory || t.loading}</span>
+    </Card>
+    <Card title={t.catalog}
+      hint={`${t.lastUpdated}: ${updatedAt ? new Date(updatedAt * 1000).toLocaleString() : t.neverUpdated} · ${t.autoCheckHint}`}
+      action={<ButtonItem layout="below" disabled={busy || !database} onClick={() => { void update(); }}>{t.updateNow}</ButtonItem>}>
+      {database === undefined ? t.loading : database.ready ? <>{dot("#59bf40")}{t.catalogReady}</> : <>{dot(colors.warning)}{t.catalogMissing}</>}
+    </Card>
+    {active.length > 0 && <Card title={t.downloadActivity} hint={t.activeDownloads(active.length)}>
+      {active.map(job => {
+        const percent = job.state === "extracting" ? 100 : job.total ? Math.floor(job.downloaded / job.total * 100) : 0;
+        return <div key={job.id} style={{ marginBottom: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.trainer_name}</span>
+            <span style={{ color: colors.accentText, flex: "0 0 auto" }}>{job.state === "downloading" ? `${percent}%` : jobStateLabel(t, job, percent)}</span></div>
+          <div role="progressbar" aria-label={job.trainer_name} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
+            style={{ height: 3, marginTop: 4, borderRadius: 2, background: "rgba(255,255,255,.1)", overflow: "hidden" }}>
+            <div style={{ width: `${percent}%`, height: "100%", background: colors.accent }} /></div>
+        </div>;
+      })}
+    </Card>}
+    {message && <PanelSectionRow><div role="status" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{errorMessage(message, t)}</div></PanelSectionRow>}
+    <PanelSectionRow><div style={{ fontSize: 11, color: colors.dim, lineHeight: 1.5 }}>{t.openHint}</div></PanelSectionRow>
   </PanelSection>;
 }

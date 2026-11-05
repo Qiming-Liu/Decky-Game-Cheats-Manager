@@ -1,19 +1,15 @@
 import { FileSelectionType, openFilePicker } from "@decky/api";
-import {
-  ConfirmModal, DialogButton, Field, Focusable, Menu, MenuItem, showContextMenu, showModal, Spinner,
-} from "@decky/ui";
+import { ConfirmModal, DialogButton, Focusable, showModal, Spinner } from "@decky/ui";
 import { useEffect, useRef, useState } from "react";
 import {
-  FaArrowLeft, FaCheckCircle, FaEllipsisH, FaExclamationTriangle, FaFolderOpen, FaInfoCircle, FaPlay, FaRegCircle, FaSearch, FaTimes,
+  FaCheckCircle, FaDownload, FaExclamationTriangle, FaFolderOpen, FaPlay, FaRegCircle, FaSearch, FaTrashAlt,
 } from "react-icons/fa";
-
-const iconStyle = { marginRight: 8, verticalAlign: -2 } as const;
 import { invalidateLibrary, useLibrary } from "../hooks/useLibrary";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
 import { useSidecar } from "../hooks/useSidecar";
 import { cancelDownload, deleteTrainer, LINKED_ORIGIN, LocalTrainer, linkTrainer } from "../utils/backend";
 import { errorMessage, useTranslations } from "../utils/i18n";
-import TrainerRow, { actionButtonStyle, TrainerName } from "./TrainerRow";
+import { Button, chip, colors, IconButton, iconStyle, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
 import TrainerSearch from "./TrainerSearch";
 
 const programsOf = (trainer: LocalTrainer) => trainer.files.filter(file => /\.(exe|bat)$/i.test(file));
@@ -32,6 +28,7 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
   const trainers = library?.trainers || [];
   const activeJobs = jobs.filter(job => job.state !== "done");
   const selected = trainers.find(trainer => sidecar.isSelected(trainer));
+  const selectedName = selected?.name || (sidecar.selected ? baseName(sidecar.selected) : "");
 
   async function action(run: () => Promise<void>) {
     setBusy(true); setMessage("");
@@ -41,7 +38,6 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
   }
 
   function choose(trainer: LocalTrainer) {
-    if (trainer.missing) { void pickLocalFile(); return; }
     const programs = programsOf(trainer);
     if (!programs.length) { setMessage("executableRequired"); return; }
     if (programs.length === 1) { void action(() => sidecar.select(trainer, programs[0])); return; }
@@ -80,90 +76,92 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
   }
 
   function remove(trainer: LocalTrainer) {
-    const linked = trainer.origin === LINKED_ORIGIN;
     const run = () => action(async () => {
       if (sidecar.isSelected(trainer)) await sidecar.clear();
       await deleteTrainer({ appId, directory: library?.directory || "", entryId: trainer.id });
       invalidateLibrary();
     });
-    if (linked) { void run(); return; }
+    // A linked file is only forgotten, never deleted, so no confirmation is needed.
+    if (trainer.origin === LINKED_ORIGIN) { void run(); return; }
     showModal(<ConfirmModal strTitle={t.deleteTitle} strDescription={t.deleteDescription(trainer.name)}
       strOKButtonText={t.delete} strCancelButtonText={t.cancel} onOK={() => { void run(); }} />, window);
   }
 
-  function openMenu(trainer: LocalTrainer, target?: EventTarget) {
-    showContextMenu(<Menu label={trainer.name}>
-      <MenuItem onSelected={() => remove(trainer)}>{trainer.origin === LINKED_ORIGIN ? t.removeLink : t.delete}</MenuItem>
-    </Menu>, target);
-  }
-
-  const status = (message || error || sidecar.error) &&
-    <div role="status" style={{ overflowWrap: "anywhere", margin: "6px 0" }}>{errorMessage(message || error || sidecar.error, t)}</div>;
+  const status = <Status message={message || error || sidecar.error ? errorMessage(message || error || sidecar.error, t) : undefined} />;
+  const localFileButton = <Button disabled={busy || !library?.success} onClick={() => { void pickLocalFile(); }}>
+    <FaFolderOpen aria-hidden style={iconStyle} />{t.localFile}</Button>;
   const empty = !loading && !error && !trainers.length && !activeJobs.length;
 
   if (searching || empty) {
     return <Focusable flow-children="column">
+      <PageHeader title={t.searchTitle}>
+        {!empty && <Button onClick={() => setSearching(false)}>{t.back}</Button>}
+        {localFileButton}
+      </PageHeader>
       {status}
       <TrainerSearch appId={appId} initialKeyword={gameName} />
-      <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-        {!empty && <DialogButton style={actionButtonStyle} onClick={() => setSearching(false)}><FaArrowLeft aria-hidden style={iconStyle} />{t.back}</DialogButton>}
-        <span style={{ flex: "1 1 auto", fontSize: 13, opacity: .6 }}>{t.notFoundQuestion}</span>
-        <DialogButton style={{ ...actionButtonStyle, width: "auto", color: "#1a9fff" }} disabled={busy || !library?.success}
-          onClick={() => { void pickLocalFile(); }}><FaFolderOpen aria-hidden style={iconStyle} />{t.useLocalFile}</DialogButton>
-      </Focusable>
     </Focusable>;
   }
 
   return <Focusable flow-children="column">
-    <div style={{
-      display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", marginBottom: 10, borderRadius: 4,
-      background: selected || sidecar.selected ? "rgba(89, 191, 64, .18)" : "#23262e",
-    }}>
-      <div style={{ flex: "1 1 0", minWidth: 0, overflowWrap: "anywhere", color: selected || sidecar.selected ? "#8ee06f" : undefined }}>
-        {selected || sidecar.selected ? <FaPlay aria-hidden style={iconStyle} /> : <FaRegCircle aria-hidden style={{ ...iconStyle, opacity: .5 }} />}
-        {selected || sidecar.selected ? t.runningWith(selected?.name || baseName(sidecar.selected || "")) : t.noModifierSelected}
-      </div>
-      {sidecar.selected && <DialogButton style={actionButtonStyle} disabled={busy}
-        onClick={() => { void action(sidecar.clear); }}><FaTimes aria-hidden style={iconStyle} />{t.stopUsing}</DialogButton>}
-    </div>
+    <PageHeader title={t.tabModifiers}>
+      <Button onClick={() => setSearching(true)}><FaSearch aria-hidden style={iconStyle} />{t.search}</Button>
+      {localFileButton}
+    </PageHeader>
     {status}
-    {activeJobs.map(job => {
-      const active = ["queued", "downloading", "extracting"].includes(job.state);
-      const percent = job.total ? Math.floor(job.downloaded / job.total * 100) : null;
-      return <TrainerRow key={job.id}>
-        <TrainerName>{job.trainer_name}
-          <div role="status" style={{ fontSize: 12, opacity: .7, overflowWrap: "anywhere" }}>
-            {job.state === "downloading" ? t.downloading(percent) : job.state === "error" ? t.failed : t[job.state]}
-            {job.error && <div>{errorMessage(job.error, t)}</div>}</div>
-          {active && job.total > 0 && <progress aria-label={t.downloadProgress} value={job.downloaded} max={job.total} style={{ width: "100%" }} />}
-        </TrainerName>
-        {active && <DialogButton style={actionButtonStyle} disabled={busy || cancelling.has(job.id)} onClick={() => { void action(async () => {
-          const result = await cancelDownload({ appId, jobId: job.id });
-          setCancelling(previous => new Set(previous).add(job.id));
-          trackDownload(result);
-        }); }}>{cancelling.has(job.id) ? t.cancelling : t.cancelDownload}</DialogButton>}
-      </TrainerRow>;
-    })}
+
+    {sidecar.selected && <Focusable flow-children="row" style={{
+      display: "flex", alignItems: "center", gap: 16, padding: "14px 18px", marginBottom: 14, borderRadius: 4,
+      background: "rgba(26,159,255,.12)", border: "1px solid rgba(26,159,255,.45)",
+    }}>
+      <span aria-hidden style={{ display: "inline-flex", width: 36, height: 36, borderRadius: 18, background: colors.accent, color: "#fff", alignItems: "center", justifyContent: "center", flex: "0 0 36px" }}><FaPlay /></span>
+      <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+        <div style={{ fontSize: 12, color: colors.accentText, fontWeight: 500 }}>{t.runsWithGame}</div>
+        <div style={{ fontSize: 17, color: colors.text, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedName}</div>
+        <div style={{ fontSize: 12, color: colors.muted }}>{t.switchWindowHint}</div>
+      </div>
+      <Button disabled={busy} onClick={() => { void action(sidecar.clear); }}>{t.stopUsing}</Button>
+    </Focusable>}
+
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.muted, padding: "2px 4px 8px" }}>
+      <span>{t.downloadedTitle(trainers.length)}</span><span>{t.rowHint}</span></div>
     {loading && !trainers.length && <Spinner style={{ height: 32 }} />}
+
     {trainers.map(trainer => {
       const current = sidecar.isSelected(trainer);
       const linked = trainer.origin === LINKED_ORIGIN;
-      const icon = trainer.missing ? <FaExclamationTriangle color="#e3a33b" />
-        : current ? <FaCheckCircle color="#1a9fff" /> : <FaRegCircle style={{ opacity: .5 }} />;
-      return <Field key={trainer.id} focusable highlightOnFocus icon={icon} label={trainer.name}
-        description={trainer.missing ? t.fileMissing : linked ? trainer.path : !programsOf(trainer).length ? t.cheatEngineRequired : t.originOnline}
-        disabled={busy || !sidecar.ready} onActivate={() => { if (!current) choose(trainer); }}
-        childrenContainerWidth="min">
-        <DialogButton aria-label={t.moreActions} style={{ width: 40, minWidth: 40, height: 40, padding: 0 }}
-          disabled={busy || !sidecar.ready} onClick={event => openMenu(trainer, event.currentTarget ?? undefined)}>
-          <FaEllipsisH aria-hidden /></DialogButton>
-      </Field>;
+      const programs = programsOf(trainer);
+      const icon = trainer.missing ? <FaExclamationTriangle color={colors.warning} />
+        : current ? <FaCheckCircle color={colors.accent} /> : linked ? <FaFolderOpen color={colors.dim} /> : <FaRegCircle color={colors.dim} />;
+      const description = trainer.missing ? <span style={{ color: colors.warning }}>{t.fileMissingDetail}</span>
+        : linked ? `${t.localFile} · ${trainer.path}`
+        : !programs.length ? t.cheatEngineRequired
+        : `${t.originOnline}${trainer.version ? ` · ${trainer.version}` : ""}`;
+      return <Row key={trainer.id} icon={icon} title={trainer.name} description={description} highlight={current}
+        disabled={busy || !sidecar.ready} onActivate={!current && !trainer.missing ? () => choose(trainer) : undefined}>
+        {current && chip(t.inUse)}
+        {trainer.missing && <Button style={{ height: 36 }} disabled={busy} onClick={() => { void pickLocalFile(); }}>{t.reselectFile}</Button>}
+        <IconButton tone="danger" label={linked ? t.removeLink : t.delete} disabled={busy || !sidecar.ready}
+          onClick={() => remove(trainer)}><FaTrashAlt aria-hidden /></IconButton>
+      </Row>;
     })}
-    <Focusable flow-children="row" style={{ display: "flex", gap: 8, marginTop: 12 }}>
-      <DialogButton style={{ flex: "1 1 0" }} onClick={() => setSearching(true)}><FaSearch aria-hidden style={iconStyle} />{t.findModifier}</DialogButton>
-      <DialogButton style={{ flex: "1 1 0" }} disabled={busy || !library?.success} onClick={() => { void pickLocalFile(); }}>
-        <FaFolderOpen aria-hidden style={iconStyle} />{t.useLocalFile}</DialogButton>
-    </Focusable>
-    <div style={{ fontSize: 12, opacity: .6, marginTop: 10 }}><FaInfoCircle aria-hidden style={{ marginRight: 6, verticalAlign: -1 }} />{t.switchWindowHint}</div>
+
+    {activeJobs.map(job => {
+      const active = ["queued", "downloading", "extracting"].includes(job.state);
+      const percent = job.state === "extracting" ? 100 : job.total ? Math.floor(job.downloaded / job.total * 100) : 0;
+      const state = jobStateLabel(t, job, percent);
+      return <Row key={job.id} icon={<FaDownload color={colors.accent} />} title={job.trainer_name}
+        description={<span style={{ color: job.state === "error" ? colors.warning : colors.accentText }}>
+          {state}{active && ` · ${t.autoSelectAfter}`}{job.error && ` · ${errorMessage(job.error, t)}`}</span>}
+        footer={active ? <Progress percent={percent} label={t.downloadProgress} /> : undefined}>
+        {active && <Button style={{ height: 36, background: "transparent", color: "#a9b1b8" }} disabled={busy || cancelling.has(job.id)}
+          onClick={() => { void action(async () => {
+            const result = await cancelDownload({ appId, jobId: job.id });
+            setCancelling(previous => new Set(previous).add(job.id));
+            trackDownload(result);
+          }); }}>{cancelling.has(job.id) ? t.cancelling : t.cancel}</Button>}
+      </Row>;
+    })}
+    <div style={{ borderTop: `1px solid ${colors.line}` }} />
   </Focusable>;
 }
