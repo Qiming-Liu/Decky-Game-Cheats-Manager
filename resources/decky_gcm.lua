@@ -205,13 +205,13 @@ local function apply(command)
   if not record then return end
   if command.value ~= nil then
     local ok = pcall(function() record.Value = tostring(command.value) end)
-    failed[id] = ok and nil or "value"
+    if ok then failed[id] = nil else failed[id] = "value" end
   end
   if command.active ~= nil then
     local want = command.active and true or false
     local ok = pcall(function() record.Active = want end)
     if ok and want and not record.Active then ok = false end
-    failed[id] = ok and nil or "activate"
+    if ok then failed[id] = nil else failed[id] = "activate" end
   end
 end
 
