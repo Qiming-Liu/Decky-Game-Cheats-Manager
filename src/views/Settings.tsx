@@ -1,23 +1,33 @@
 import { useTranslations, errorMessage } from "../utils/i18n";
 import { FileSelectionType, openFilePicker } from "@decky/api";
-import { ButtonItem, PanelSection, PanelSectionRow, useQuickAccessVisible } from "@decky/ui";
+import { Focusable, PanelSection, PanelSectionRow, useQuickAccessVisible } from "@decky/ui";
 import { ReactNode, useEffect, useState } from "react";
 import { cleanupTrash, getLibrarySettings, refreshDatabase, setLibraryDirectory, DatabaseStatus } from "../utils/backend";
 import { invalidateLibrary } from "../hooks/useLibrary";
 import { useDownloads } from "../hooks/useDownloads";
-import { colors, jobStateLabel, mono } from "./shell";
+import { Button, colors, jobStateLabel, mono } from "./shell";
 
 /** One card of the Quick Access panel: title, current value, hint, one action. */
 function Card({ title, children, hint, action }: { title: ReactNode; children: ReactNode; hint?: ReactNode; action?: ReactNode }) {
   return <PanelSectionRow>
-    <div style={{ padding: "10px 12px 4px", borderRadius: 4, background: "rgba(0,0,0,.28)", marginBottom: 8 }}>
-      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 6 }}>{title}</div>
+    <Focusable flow-children="column" style={{
+      boxSizing: "border-box", padding: "12px 14px", borderRadius: 4, background: "rgba(0,0,0,.28)", marginBottom: 14,
+      display: "flex", flexDirection: "column", gap: 8,
+    }}>
+      {typeof title === "string" ? <div style={{ fontSize: 12, color: colors.muted }}>{title}</div> : title}
       <div style={{ fontSize: 13, color: colors.text }}>{children}</div>
-      {hint && <div style={{ fontSize: 11, color: colors.dim, marginTop: 4 }}>{hint}</div>}
-      {action && <div style={{ margin: "6px -12px 0" }}>{action}</div>}
-    </div>
+      {hint && <div style={{ fontSize: 11, color: colors.dim }}>{hint}</div>}
+      {action}
+    </Focusable>
   </PanelSectionRow>;
 }
+
+const cardButton = { width: "100%", height: 36, fontSize: 13 } as const;
+const pad = (value: number) => String(value).padStart(2, "0");
+const formatTime = (seconds: number) => {
+  const date = new Date(seconds * 1000);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
 
 export default function Settings() {
   const t = useTranslations();
@@ -65,25 +75,26 @@ export default function Settings() {
   const updatedAt = Math.max(0, ...Object.values(database?.files || {}).filter((value): value is number =>
     typeof value === "number" && Number.isFinite(value)));
   const dot = (color: string) => <span aria-hidden style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color, marginRight: 8, verticalAlign: 1 }} />;
-  return <PanelSection title={t.settings}>
+  return <PanelSection>
     <Card title={t.folder} hint={t.pathMoveHint}
-      action={<ButtonItem layout="below" disabled={busy || !directory} onClick={() => { void choose(); }}>{t.changePath}</ButtonItem>}>
-      <span style={{ ...mono, fontSize: 13 }}>{directory || t.loading}</span>
+      action={<Button style={cardButton} disabled={busy || !directory} onClick={() => { void choose(); }}>{t.changePath}</Button>}>
+      <span style={{ ...mono, fontSize: 13, lineHeight: 1.45 }}>{directory || t.loading}</span>
     </Card>
     <Card title={t.catalog}
-      hint={`${t.lastUpdated}: ${updatedAt ? new Date(updatedAt * 1000).toLocaleString() : t.neverUpdated} · ${t.autoCheckHint}`}
-      action={<ButtonItem layout="below" disabled={busy || !database} onClick={() => { void update(); }}>{t.updateNow}</ButtonItem>}>
-      {database === undefined ? t.loading : database.ready ? <>{dot("#59bf40")}{t.catalogReady}</> : <>{dot(colors.warning)}{t.catalogMissing}</>}
+      hint={`${t.lastUpdated} ${updatedAt ? formatTime(updatedAt) : t.neverUpdated}`}
+      action={<Button style={cardButton} disabled={busy || !database} onClick={() => { void update(); }}>{t.updateNow}</Button>}>
+      <span style={{ fontSize: 14 }}>{database === undefined ? t.loading : database.ready ? <>{dot("#59bf40")}{t.catalogReady}</> : <>{dot(colors.warning)}{t.catalogMissing}</>}</span>
     </Card>
-    {active.length > 0 && <Card title={t.downloadActivity} hint={t.activeDownloads(active.length)}>
+    {active.length > 0 && <Card title={<div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.muted }}>
+      <span>{t.downloadActivity}</span><span>{t.activeDownloads(active.length)}</span></div>}>
       {active.map(job => {
         const percent = job.state === "extracting" ? 100 : job.total ? Math.floor(job.downloaded / job.total * 100) : 0;
-        return <div key={job.id} style={{ marginBottom: 6 }}>
+        return <div key={job.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
             <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.trainer_name}</span>
             <span style={{ color: colors.accentText, flex: "0 0 auto" }}>{job.state === "downloading" ? `${percent}%` : jobStateLabel(t, job, percent)}</span></div>
           <div role="progressbar" aria-label={job.trainer_name} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
-            style={{ height: 3, marginTop: 4, borderRadius: 2, background: "rgba(255,255,255,.1)", overflow: "hidden" }}>
+            style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,.1)", overflow: "hidden" }}>
             <div style={{ width: `${percent}%`, height: "100%", background: colors.accent }} /></div>
         </div>;
       })}

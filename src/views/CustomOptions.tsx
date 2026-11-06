@@ -1,6 +1,5 @@
 import { ConfirmModal, Focusable, ModalRoot, showModal, Spinner, TextField, Toggle } from "@decky/ui";
 import { useEffect, useState } from "react";
-import { FaCheck, FaLock, FaPen, FaPlus, FaTimes, FaTrashAlt } from "react-icons/fa";
 import { COMMON_NAMES } from "../domain/common";
 import { CustomOption, isOptionEnabled, optionDefinitions, setOptionEnabled, unrecognized } from "../domain/custom";
 import { LaunchOptions, parseLaunchOptionDefinition, renderLaunchOptionDefinition } from "../domain/options";
@@ -9,7 +8,8 @@ import { saveOptions, useCustomOptions } from "../hooks/useCustomOptions";
 import { useLaunchOptions } from "../hooks/useLaunchOptions";
 import { errorMessage, useTranslations } from "../utils/i18n";
 import { Translations } from "../utils/locales";
-import { Button, colors, IconButton, iconStyle, mono, PageHeader, Preview, Row, Status } from "./shell";
+import { Button, colors, MenuAction, mono, PageHeader, Preview, Row, Status } from "./shell";
+import { CheckIcon, CrossIcon, LockIcon, PlusIcon } from "./icons";
 
 const presetNames = (t: Translations): Record<string, string> => ({
   lsfg: t.presetLsfg, optiscaler: t.presetOptiscaler, optiscalerRemove: t.presetOptiscalerRemove, mako: t.presetMako,
@@ -53,20 +53,20 @@ function OptionEditor({ t, option, onSave, closeModal }: {
     try { await onSave(shownName.trim(), editableContent ? [check.value!] : undefined, enable); closeModal?.(); }
     catch (cause) { setError(errorMessage(cause instanceof Error ? cause.message : "unknownError", t)); setBusy(false); }
   }
-  return <ModalRoot closeModal={closeModal}>
+  return <ModalRoot closeModal={closeModal} className="gcm-font">
     <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 16 }}>{option ? t.editOption : t.newOption}</div>
     {editableContent ? <>
       <div style={fieldLabel}>{t.optionContent}</div>
-      <TextField value={content} style={mono} onChange={event => { setContent(event.target.value); setError(""); }} />
+      <TextField value={content} style={{ ...mono, fontSize: 16 }} onChange={event => { setContent(event.target.value); setError(""); }} />
       <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, minHeight: 20, marginTop: 6, color: check.ok ? colors.success : colors.danger }}>
-        {check.message && (check.ok ? <FaCheck aria-hidden /> : <FaTimes aria-hidden />)}<span>{check.message}</span></div>
+        {check.message && (check.ok ? <CheckIcon size={14} /> : <CrossIcon size={14} />)}<span>{check.message}</span></div>
       <div style={{ ...fieldLabel, fontSize: 12, marginTop: 12 }}>{t.examples}</div>
       <Focusable flow-children="row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {["MANGOHUD=1", "gamemoderun", "-windowed", "-dx11", "DXVK_ASYNC=1"].map(example =>
-          <Button key={example} style={{ height: 32, padding: "0 12px", borderRadius: 16, fontSize: 13, ...mono }}
+          <Button key={example} ghost style={{ ...mono, height: 32, padding: "0 12px", borderRadius: 16, fontSize: 13, border: "1px solid rgba(255,255,255,.14)", color: "#dcdedf" }}
             onClick={() => { setContent(example); setError(""); }}>{example}</Button>)}
       </Focusable>
-      <div style={{ fontSize: 12, color: colors.dim, marginTop: 8 }}>{t.invalidOption}</div>
+      <div style={{ fontSize: 12, color: colors.dim, marginTop: 8 }}>{t.optionHint}</div>
     </> : <div style={{ ...mono, color: colors.muted, marginBottom: 12 }}>{option?.definitions.join(" ")}</div>}
     <div style={{ ...fieldLabel, marginTop: 16 }}>{t.optionName} <span style={{ color: colors.dim }}>{!option && t.nameAuto}</span></div>
     <TextField value={shownName} onChange={event => { setName(event.target.value); setNameTouched(true); setError(""); }} />
@@ -149,10 +149,12 @@ export default function CustomOptions({ appId }: { appId: string }) {
 
   return <Focusable flow-children="column">
     <PageHeader title={t.tabCustom} note={t.sharedListHint}>
-      <Button primary disabled={busy} onClick={create}><FaPlus aria-hidden style={iconStyle} />{t.newShort}</Button>
+      <Button primary disabled={busy} onClick={create}><PlusIcon size={16} />{t.newShort}</Button>
     </PageHeader>
     <Status message={!editable ? t.unsafeOptions : undefined} tone="warning" />
     <Status message={message || error ? errorMessage(message || error, t) : undefined} />
+    <Preview t={t} source={options} legend={t.legendCustom}
+      ownerOf={(text, name) => text && ours.has(text) ? "page" : name && sidecarNames.has(name) ? "modifier" : "other"} />
     {saved.map(option => {
       const enabled = isOptionEnabled(options, option);
       const definitions = optionDefinitions(option);
@@ -160,15 +162,12 @@ export default function CustomOptions({ appId }: { appId: string }) {
       const description = <>
         <span style={{ color: option.detected ? colors.warning : "#a9b1b8" }}>{option.detected ? t.detectedHint : kind} · </span>
         <span style={mono}>{option.definitions.join(" ")}</span></>;
-      return <Row key={option.id} icon={option.detected ? <FaLock color={colors.warning} /> : undefined}
-        title={optionName(t, option)} description={description} highlight={enabled}>
-        {!option.detected && <IconButton label={t.edit} disabled={busy} onClick={() => edit(option)}><FaPen aria-hidden /></IconButton>}
-        {!option.detected && <IconButton tone="danger" label={t.delete} disabled={busy} onClick={() => remove(option)}><FaTrashAlt aria-hidden /></IconButton>}
-        <Toggle value={enabled} disabled={disabled} onChange={checked => setEnabled(option, checked)} />
-      </Row>;
+      const actions: MenuAction[] = [{ label: t.edit, onSelect: () => edit(option), disabled: busy }];
+      if (!option.detected) actions.push({ label: t.delete, tone: "danger", onSelect: () => remove(option), disabled: busy });
+      return <Row key={option.id} icon={option.detected ? <LockIcon color={colors.warning} /> : undefined}
+        title={optionName(t, option)} description={description} more={{ label: t.more, actions }}
+        trailing={<Toggle value={enabled} disabled={disabled} onChange={checked => setEnabled(option, checked)} />} />;
     })}
     <div style={{ borderTop: `1px solid ${colors.line}` }} />
-    <Preview t={t} source={options} legend={t.legendCustom}
-      ownerOf={(text, name) => text && ours.has(text) ? "page" : name && sidecarNames.has(name) ? "modifier" : "other"} />
   </Focusable>;
 }

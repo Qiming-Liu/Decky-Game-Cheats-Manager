@@ -10,6 +10,9 @@ import { useLaunchOptions } from "../hooks/useLaunchOptions";
 import { errorMessage, useTranslations } from "../utils/i18n";
 import { Translations } from "../utils/locales";
 import { Button, colors, mono, PageHeader, Preview, Row, SectionTitle, Status } from "./shell";
+import { ChevronDownIcon, ChevronRightIcon } from "./icons";
+
+const TROUBLESHOOTING: ToggleId[] = ["wined3d", "sdl", "fsync", "log", "overlay"];
 
 const toggleText = (t: Translations, id: ToggleId): { label: string; hint: string } => ({
   desktop: { label: t.desktopMode, hint: t.desktopHint },
@@ -33,6 +36,8 @@ export default function CommonSettings({ appId }: { appId: string }) {
   const { options, error, update } = useLaunchOptions(appId);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  // Rarely needed, so the troubleshooting switches start folded away.
+  const [troubleshooting, setTroubleshooting] = useState(false);
 
   async function change(edit: (current: string) => string) {
     setBusy(true); setMessage("");
@@ -66,11 +71,12 @@ export default function CommonSettings({ appId }: { appId: string }) {
     const current = parsed.getEnvironment(item.name);
     const description = occupied ? <span style={{ color: colors.warning }}>{t.occupiedBy(current === undefined ? item.name : command(item.name, current))}</span>
       : state.toggles[id] ? <Command>{command(item.name, item.value)}</Command> : hint;
-    return <Row key={id} title={label} description={description} disabled={occupied}>
+    return <Row key={id} title={label} description={description}>
       <Toggle value={state.toggles[id]} disabled={disabled || occupied}
         onChange={checked => { void change(currentOptions => setToggle(currentOptions, id, checked)); }} />
     </Row>;
   };
+  const onCount = TROUBLESHOOTING.filter(id => state.toggles[id]).length;
   const languages = [...new Set([...LANGUAGES, ...(state.language ? [state.language] : [])])];
   const audioChoices = [
     { data: "", label: t.off },
@@ -78,14 +84,16 @@ export default function CommonSettings({ appId }: { appId: string }) {
   ];
   // A value written elsewhere stays visible and selectable.
   if (state.audio && !(AUDIO_VALUES as readonly string[]).includes(state.audio)) audioChoices.push({ data: state.audio, label: `${state.audio} ms` });
-  const dropdownStyle = { minWidth: 180 } as const;
+  const dropdownStyle = { minWidth: 170 } as const;
   const common = new Set(COMMON_NAMES);
   const sidecarNames = new Set(SIDECAR_NAMES);
 
   return <Focusable flow-children="column">
-    <PageHeader title={t.tabCommon} note={t.effectNextLaunch} />
+    <PageHeader title={t.tabCommon} note={t.effectNextLaunch} noteEnd />
     <Status message={!editable ? t.unsafeOptions : undefined} tone="warning" />
     <Status message={message || error ? errorMessage(message || error, t) : undefined} />
+    <Preview t={t} source={options} legend={t.legendCommon}
+      ownerOf={(_, name) => name && common.has(name) ? "page" : name && sidecarNames.has(name) ? "modifier" : "other"} />
 
     <SectionTitle first>{t.basic}</SectionTitle>
     <Row title={t.gameLanguage} description={state.language ? <Command>{`LANG=${state.language} HOST_LC_ALL=${state.language}`}</Command> : t.languageHint}>
@@ -109,15 +117,16 @@ export default function CommonSettings({ appId }: { appId: string }) {
     </Row>
     <div style={{ borderTop: `1px solid ${colors.line}` }} />
 
-    <SectionTitle>{t.troubleshooting}</SectionTitle>
-    {toggle("wined3d")}
-    {toggle("sdl")}
-    {toggle("fsync")}
-    {toggle("log")}
-    {toggle("overlay")}
-    <div style={{ borderTop: `1px solid ${colors.line}` }} />
+    <Focusable className="gcm-row" aria-expanded={troubleshooting} onActivate={() => setTroubleshooting(!troubleshooting)}
+      onClick={() => setTroubleshooting(!troubleshooting)}
+      style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "8px 4px", borderRadius: 3, cursor: "pointer", fontSize: 12, color: colors.muted, fontWeight: 500 }}>
+      {troubleshooting ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
+      <span>{t.troubleshooting}</span>
+      {!troubleshooting && onCount > 0 && <span style={{ color: colors.accentText, fontWeight: 400 }}>· {t.enabledCount(onCount)}</span>}
+    </Focusable>
+    {troubleshooting && <Focusable style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", columnGap: 24, borderBottom: `1px solid ${colors.line}` }}>
+      {TROUBLESHOOTING.map(toggle)}
+    </Focusable>}
 
-    <Preview t={t} source={options} legend={t.legendCommon}
-      ownerOf={(_, name) => name && common.has(name) ? "page" : name && sidecarNames.has(name) ? "modifier" : "other"} />
   </Focusable>;
 }

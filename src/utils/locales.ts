@@ -17,6 +17,7 @@ function translations(messages: Messages) {
     runningWith: (name: string) => messages.runningWith.replace("{name}", () => name),
     foundCount: (count: number) => messages.foundCount.replace("{count}", () => String(count)),
     occupiedBy: (value: string) => messages.occupiedBy.replace("{value}", () => value),
+    databaseDate: (date: string) => messages.databaseDate.replace("{date}", () => date),
     activeDownloads: (count: number) => messages.activeDownloads.replace("{count}", () => String(count)),
   };
 }

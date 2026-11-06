@@ -1,12 +1,22 @@
 import { routerHook } from "@decky/api";
-import { definePlugin, staticClasses } from "@decky/ui";
+import { definePlugin } from "@decky/ui";
 import { FaGamepad as PluginIcon } from "react-icons/fa";
 
 import installGameMenu from "./patch";
-import { initLanguage, PLUGIN_NAME } from "./utils/i18n";
+import { initLanguage, PLUGIN_NAME, useTranslations } from "./utils/i18n";
 import { GAME_PAGE_ROUTE } from "./utils/routes";
 import GamePage from "./views/GamePage";
 import Settings from "./views/Settings";
+
+/** The Quick Access title: the plugin's localized name and its version. */
+function Title() {
+  const t = useTranslations();
+  const loader = (window as { DeckyPluginLoader?: { plugins?: { name: string; version?: string }[] } }).DeckyPluginLoader;
+  const version = loader?.plugins?.find(plugin => plugin.name === PLUGIN_NAME)?.version;
+  return <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+    <span>{t.menuLabel}</span>{version && <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7480" }}>v{version}</span>}
+  </div>;
+}
 
 export default definePlugin(() => {
   initLanguage();
@@ -16,7 +26,7 @@ export default definePlugin(() => {
 
   return {
     name: PLUGIN_NAME,
-    title: <div className={staticClasses.Title}>{PLUGIN_NAME}</div>,
+    titleView: <Title />,
     content: <Settings />,
     icon: <PluginIcon />,
     onDismount() {

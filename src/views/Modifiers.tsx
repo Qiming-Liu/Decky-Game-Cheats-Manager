@@ -1,15 +1,18 @@
 import { FileSelectionType, openFilePicker } from "@decky/api";
 import { ConfirmModal, DialogButton, Focusable, showModal, Spinner } from "@decky/ui";
-import { useEffect, useRef, useState } from "react";
-import {
-  FaCheckCircle, FaDownload, FaExclamationTriangle, FaFolderOpen, FaPlay, FaRegCircle, FaSearch, FaTrashAlt,
-} from "react-icons/fa";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invalidateLibrary, useLibrary } from "../hooks/useLibrary";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
 import { useSidecar } from "../hooks/useSidecar";
 import { cancelDownload, deleteTrainer, LINKED_ORIGIN, LocalTrainer, linkTrainer } from "../utils/backend";
 import { errorMessage, useTranslations } from "../utils/i18n";
-import { Button, chip, colors, IconButton, iconStyle, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
+import { Button, chip, colors, IconButton, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
+import {
+  BackIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, PlayFilledIcon, SearchIcon, StopIcon,
+  TrashIcon, WarningIcon,
+} from "./icons";
+
+const PAGE_SIZE = 5;
 import TrainerSearch from "./TrainerSearch";
 
 const programsOf = (trainer: LocalTrainer) => trainer.files.filter(file => /\.(exe|bat)$/i.test(file));
@@ -24,6 +27,15 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [cancelling, setCancelling] = useState(new Set<string>());
+  const [page, setPage] = useState(0);
+  // A short last page keeps the height of a full one so the pager never moves.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [fullHeight, setFullHeight] = useState(0);
+  const showingFullPage = useRef(false);
+  useLayoutEffect(() => {
+    const height = listRef.current?.offsetHeight || 0;
+    if (showingFullPage.current && height > fullHeight) setFullHeight(height);
+  }, [page, library?.trainers?.length, jobs.length, searching, fullHeight]);
   const autoSelected = useRef(new Set<string>());
   const trainers = library?.trainers || [];
   const activeJobs = jobs.filter(job => job.state !== "done");
@@ -89,13 +101,14 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
 
   const status = <Status message={message || error || sidecar.error ? errorMessage(message || error || sidecar.error, t) : undefined} />;
   const localFileButton = <Button disabled={busy || !library?.success} onClick={() => { void pickLocalFile(); }}>
-    <FaFolderOpen aria-hidden style={iconStyle} />{t.localFile}</Button>;
+    <FolderIcon size={16} width={2.2} />{t.localFile}</Button>;
   const empty = !loading && !error && !trainers.length && !activeJobs.length;
 
   if (searching || empty) {
+    showingFullPage.current = false;
     return <Focusable flow-children="column">
-      <PageHeader title={t.searchTitle}>
-        {!empty && <Button onClick={() => setSearching(false)}>{t.back}</Button>}
+      <PageHeader title={t.searchTitle} before={!empty && <IconButton label={t.back} style={{ background: colors.button, color: colors.text }}
+        onClick={() => setSearching(false)}><BackIcon /></IconButton>}>
         {localFileButton}
       </PageHeader>
       {status}
@@ -103,65 +116,79 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
     </Focusable>;
   }
 
-  return <Focusable flow-children="column">
-    <PageHeader title={t.tabModifiers}>
-      <Button onClick={() => setSearching(true)}><FaSearch aria-hidden style={iconStyle} />{t.search}</Button>
-      {localFileButton}
-    </PageHeader>
-    {status}
-
-    {sidecar.selected && <Focusable flow-children="row" style={{
-      display: "flex", alignItems: "center", gap: 16, padding: "14px 18px", marginBottom: 14, borderRadius: 4,
-      background: "rgba(26,159,255,.12)", border: "1px solid rgba(26,159,255,.45)",
-    }}>
-      <span aria-hidden style={{ display: "inline-flex", width: 36, height: 36, borderRadius: 18, background: colors.accent, color: "#fff", alignItems: "center", justifyContent: "center", flex: "0 0 36px" }}><FaPlay /></span>
-      <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
-        <div style={{ fontSize: 12, color: colors.accentText, fontWeight: 500 }}>{t.runsWithGame}</div>
-        <div style={{ fontSize: 17, color: colors.text, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedName}</div>
-        <div style={{ fontSize: 12, color: colors.muted }}>{t.switchWindowHint}</div>
-      </div>
-      <Button disabled={busy} onClick={() => { void action(sidecar.clear); }}>{t.stopUsing}</Button>
-    </Focusable>}
-
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.muted, padding: "2px 4px 8px" }}>
-      <span>{t.downloadedTitle(trainers.length)}</span><span>{t.rowHint}</span></div>
-    {loading && !trainers.length && <Spinner style={{ height: 32 }} />}
-
-    {trainers.map(trainer => {
+  const rows = [
+    ...trainers.map(trainer => {
       const current = sidecar.isSelected(trainer);
       const linked = trainer.origin === LINKED_ORIGIN;
       const programs = programsOf(trainer);
-      const icon = trainer.missing ? <FaExclamationTriangle color={colors.warning} />
-        : current ? <FaCheckCircle color={colors.accent} /> : linked ? <FaFolderOpen color={colors.dim} /> : <FaRegCircle color={colors.dim} />;
+      const icon = trainer.missing ? <WarningIcon size={20} color={colors.warning} />
+        : current ? <CheckCircleIcon size={20} color={colors.accent} /> : linked ? <FolderIcon size={20} color={colors.dim} /> : <CircleIcon size={20} color={colors.dim} />;
       const description = trainer.missing ? <span style={{ color: colors.warning }}>{t.fileMissingDetail}</span>
         : linked ? `${t.localFile} · ${trainer.path}`
         : !programs.length ? t.cheatEngineRequired
         : `${t.originOnline}${trainer.version ? ` · ${trainer.version}` : ""}`;
-      return <Row key={trainer.id} icon={icon} title={trainer.name} description={description} highlight={current}
+      return <Row key={trainer.id} tall icon={icon} title={trainer.name} description={description} highlight={current}
+        titleColor={current ? colors.text : "#dcdedf"}
         disabled={busy || !sidecar.ready} onActivate={!current && !trainer.missing ? () => choose(trainer) : undefined}>
         {current && chip(t.inUse)}
-        {trainer.missing && <Button style={{ height: 36 }} disabled={busy} onClick={() => { void pickLocalFile(); }}>{t.reselectFile}</Button>}
+        {trainer.missing && <Button style={{ height: 36, padding: "0 14px", fontSize: 13 }} disabled={busy} onClick={() => { void pickLocalFile(); }}>{t.reselectFile}</Button>}
         <IconButton tone="danger" label={linked ? t.removeLink : t.delete} disabled={busy || !sidecar.ready}
-          onClick={() => remove(trainer)}><FaTrashAlt aria-hidden /></IconButton>
+          onClick={() => remove(trainer)}><TrashIcon /></IconButton>
       </Row>;
-    })}
-
-    {activeJobs.map(job => {
+    }),
+    ...activeJobs.map(job => {
       const active = ["queued", "downloading", "extracting"].includes(job.state);
       const percent = job.state === "extracting" ? 100 : job.total ? Math.floor(job.downloaded / job.total * 100) : 0;
       const state = jobStateLabel(t, job, percent);
-      return <Row key={job.id} icon={<FaDownload color={colors.accent} />} title={job.trainer_name}
+      return <Row key={job.id} tall icon={<DownloadIcon size={20} color={colors.accent} />} title={job.trainer_name} titleColor="#dcdedf"
         description={<span style={{ color: job.state === "error" ? colors.warning : colors.accentText }}>
-          {state}{active && ` · ${t.autoSelectAfter}`}{job.error && ` · ${errorMessage(job.error, t)}`}</span>}
-        footer={active ? <Progress percent={percent} label={t.downloadProgress} /> : undefined}>
-        {active && <Button style={{ height: 36, background: "transparent", color: "#a9b1b8" }} disabled={busy || cancelling.has(job.id)}
+          {state}{active && ` · ${t.autoSelectShort}`}{job.error && ` · ${errorMessage(job.error, t)}`}</span>}
+        footer={active ? <Progress percent={percent} label={t.downloadProgress} indent={48} /> : undefined}>
+        {active && <Button ghost style={{ height: 36, padding: "0 14px", fontSize: 13 }} disabled={busy || cancelling.has(job.id)}
           onClick={() => { void action(async () => {
             const result = await cancelDownload({ appId, jobId: job.id });
             setCancelling(previous => new Set(previous).add(job.id));
             trackDownload(result);
           }); }}>{cancelling.has(job.id) ? t.cancelling : t.cancel}</Button>}
       </Row>;
-    })}
-    <div style={{ borderTop: `1px solid ${colors.line}` }} />
+    }),
+  ];
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const shownPage = Math.min(page, pages - 1);
+  const pageRows = rows.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE);
+  showingFullPage.current = pageRows.length === PAGE_SIZE;
+
+  return <Focusable flow-children="column">
+    <PageHeader title={t.tabModifiers}>
+      <Button onClick={() => setSearching(true)}><SearchIcon size={16} />{t.search}</Button>
+      {localFileButton}
+    </PageHeader>
+    {status}
+
+    {sidecar.selected && <Focusable flow-children="row" style={{
+      display: "flex", alignItems: "center", gap: 16, padding: "16px 18px", marginBottom: 16, borderRadius: 4,
+      background: "rgba(26,159,255,.12)", border: "1px solid rgba(26,159,255,.45)",
+    }}>
+      <span aria-hidden style={{ display: "inline-flex", width: 36, height: 36, borderRadius: 18, background: colors.accent, color: "#fff", alignItems: "center", justifyContent: "center", flex: "0 0 36px" }}><PlayFilledIcon size={16} /></span>
+      <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+        <div style={{ fontSize: 12, color: colors.accentText, fontWeight: 500 }}>{t.runsWithGame}</div>
+        <div style={{ fontSize: 17, color: colors.text, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedName}</div>
+        <div style={{ fontSize: 12, color: colors.muted }}>{t.switchWindowHint}</div>
+      </div>
+      <Button disabled={busy} onClick={() => { void action(sidecar.clear); }}><StopIcon size={16} />{t.stopUsing}</Button>
+    </Focusable>}
+
+    <div style={{ fontSize: 12, color: colors.muted, padding: "2px 4px 8px" }}>{t.downloadedTitle(trainers.length)}</div>
+    {loading && !trainers.length && <Spinner style={{ height: 32 }} />}
+
+    <div ref={listRef} style={{ minHeight: pages > 1 ? fullHeight : undefined }}>
+      {pageRows}
+      <div style={{ borderTop: `1px solid ${colors.line}` }} />
+    </div>
+    {pages > 1 && <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, paddingTop: 10 }}>
+      <IconButton label={t.previousPage} disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}><ChevronLeftIcon /></IconButton>
+      <span style={{ fontSize: 13, color: colors.muted, minWidth: 48, textAlign: "center" }}>{shownPage + 1} / {pages}</span>
+      <IconButton label={t.nextPage} disabled={shownPage === pages - 1} onClick={() => setPage(shownPage + 1)}><ChevronRightIcon /></IconButton>
+    </Focusable>}
   </Focusable>;
 }
