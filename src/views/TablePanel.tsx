@@ -181,7 +181,7 @@ export default function TablePanel({ running }: { running: RunningTable }) {
           }
           const failed = Boolean(entry.error);
           const busy = pending.has(entry.id);
-          const script = entry.type === "script" || entry.value === undefined;
+          const script = entry.type === "script" || entry.value === undefined || entry.value === "" || entry.value === "??";
           const edit = editing?.id === entry.id;
           return <div key={entry.id} style={{ borderTop: `1px solid ${colors.line}`, background: edit ? colors.surface : undefined, borderRadius: 3 }}>
             <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 10, padding: `9px 4px 9px ${4 + indent}px` }}
