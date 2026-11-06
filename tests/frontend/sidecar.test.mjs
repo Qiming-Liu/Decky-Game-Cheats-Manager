@@ -158,3 +158,20 @@ test("launch options without %command% are the game's arguments and stay editabl
   assert.deepEqual([...unrecognized("-novid -w 1280", [])], ["-novid", "-w 1280"]);
   assert.deepEqual([...LaunchOptions.parse("-novid").segments().map(s => s.text)], ["-novid"]);
 });
+
+test("launcher commands pass programs in order as Windows paths and read back", () => {
+  const { launcherCommand, launcherPrograms, editSidecar, sidecarPath, LaunchOptions } = loadDomain();
+  const script = "/home/deck/homebrew/settings/DeckyGCM/launch.bat";
+  const programs = ["/home/deck/DeckyGCM/[风灵]《游戏》修改器 [1]/Trainer.exe", "/home/deck/it's/b.exe"];
+  const commandValue = launcherCommand(script, programs);
+  assert.ok(commandValue.startsWith(`${script} 'Z:\\home\\deck\\DeckyGCM\\`), commandValue);
+  const updated = editSidecar("MANGOHUD=1 %command%", commandValue, ["/home/deck/homebrew/settings/DeckyGCM", "/home/deck/DeckyGCM"]);
+  assert.deepEqual([...launcherPrograms(sidecarPath(updated), script)], programs);
+  assert.equal(LaunchOptions.parse(updated).getEnvironment("PRESSURE_VESSEL_FILESYSTEMS_RW"), "/home/deck/homebrew/settings/DeckyGCM:/home/deck/DeckyGCM");
+  // An older value naming one program directly still reads as that program.
+  assert.deepEqual([...launcherPrograms("/home/deck/My Trainer/Trainer.exe", script)], ["/home/deck/My Trainer/Trainer.exe"]);
+  assert.deepEqual([...launcherPrograms(undefined, script)], []);
+  for (const bad of ["relative.exe", "/home/deck/100%.exe", '/home/deck/"x".exe', "/a:b.exe"]) {
+    assert.throws(() => launcherCommand(script, [bad]), /valid/);
+  }
+});

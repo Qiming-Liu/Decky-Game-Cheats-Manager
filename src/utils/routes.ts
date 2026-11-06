@@ -1,5 +1,7 @@
 export const GAME_PAGE_ROUTE = "/game-cheats-manager/:appid";
 
+export const SETTINGS_ROUTE = "/game-cheats-manager-settings";
+
 export const gamePageRoute = (appid: number | string) => `/game-cheats-manager/${appid}`;
 
 // routerHook passes react-router v5-style props, but the exact shape isn't

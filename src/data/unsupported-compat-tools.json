@@ -1,0 +1,9 @@
+{
+  "_comment": "Compatibility tools whose bundled Wine Mono 11.2.0 breaks .NET trainers (Path.GetFullPath mangles named pipes; wine-mono/mono#26). Matched against Steam's strCompatToolDisplayName with case-insensitive regular expressions. Fixed upstream by Wine Mono 11.2.1 / 11.3.0.",
+  "unsupported": [
+    { "match": "^Proton 11\\.0-2", "note": "Proton 11.0-2 and its 2b/2c/2e builds" },
+    { "match": "^Proton Hotfix$", "note": "Based on the Proton 11.0-2 branch" },
+    { "match": "^GE-Proton11-[2-6]$", "note": "GE-Proton 11-2 to 11-6; 11-7 ships Wine Mono 11.3.0" },
+    { "match": "CachyOS.*11\\.0-2026070[23]", "note": "Proton-CachyOS 11.0-20260702 and 20260703; 20261005 ships Wine Mono 11.3.0" }
+  ]
+}

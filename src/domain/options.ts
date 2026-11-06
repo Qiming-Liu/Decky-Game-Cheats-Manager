@@ -31,7 +31,8 @@ const environmentName = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const reservedWords = new Set(["%command%", "--"]);
 
 const quoteWord = (value: string): string => `'${value.split("'").join(`'"'"'`)}'`;
-const renderWord = (value: string): string =>
+/** One shell word: plain when safe, otherwise single-quoted. */
+export const renderWord = (value: string): string =>
   unquotedWord.test(value) && !reservedWords.has(value) ? value : quoteWord(value);
 
 const areValidRawWords = (words: readonly string[]): boolean => {

@@ -1,105 +1,69 @@
-import { useTranslations, errorMessage } from "../utils/i18n";
-import { FileSelectionType, openFilePicker } from "@decky/api";
-import { Focusable, PanelSection, PanelSectionRow, useQuickAccessVisible } from "@decky/ui";
-import { ReactNode, useEffect, useState } from "react";
-import { cleanupTrash, getLibrarySettings, refreshDatabase, setLibraryDirectory, DatabaseStatus } from "../utils/backend";
-import { invalidateLibrary } from "../hooks/useLibrary";
-import { useDownloads } from "../hooks/useDownloads";
-import { Button, colors, jobStateLabel, mono } from "./shell";
+import { Focusable, Navigation, PanelSection, PanelSectionRow, useQuickAccessVisible } from "@decky/ui";
+import { useEffect, useState } from "react";
+import { cancelDownload, cleanupTrash } from "../utils/backend";
+import { trackDownload, useDownloads } from "../hooks/useDownloads";
+import { errorMessage, useTranslations } from "../utils/i18n";
+import { SETTINGS_ROUTE } from "../utils/routes";
+import { colors, IconButton, jobStateLabel } from "./shell";
+import { ChevronRightIcon, CrossIcon, GearIcon } from "./icons";
 
-/** One card of the Quick Access panel: title, current value, hint, one action. */
-function Card({ title, children, hint, action }: { title: ReactNode; children: ReactNode; hint?: ReactNode; action?: ReactNode }) {
-  return <PanelSectionRow>
-    <Focusable flow-children="column" style={{
-      boxSizing: "border-box", padding: "12px 14px", borderRadius: 4, background: "rgba(0,0,0,.28)", marginBottom: 14,
-      display: "flex", flexDirection: "column", gap: 8,
-    }}>
-      {typeof title === "string" ? <div style={{ fontSize: 12, color: colors.muted }}>{title}</div> : title}
-      <div style={{ fontSize: 13, color: colors.text }}>{children}</div>
-      {hint && <div style={{ fontSize: 11, color: colors.dim }}>{hint}</div>}
-      {action}
-    </Focusable>
-  </PanelSectionRow>;
-}
-
-const cardButton = { width: "100%", height: 36, fontSize: 13 } as const;
-const pad = (value: number) => String(value).padStart(2, "0");
-const formatTime = (seconds: number) => {
-  const date = new Date(seconds * 1000);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-};
-
+/** The Quick Access panel: running downloads, how to open a game page, and the way to the settings page. */
 export default function Settings() {
   const t = useTranslations();
   const visible = useQuickAccessVisible();
   useEffect(() => {
     if (visible) void cleanupTrash().catch(() => {});
   }, [visible]);
-  const [directory, setDirectory] = useState("");
-  const [database, setDatabase] = useState<DatabaseStatus>();
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [cancelling, setCancelling] = useState(new Set<string>());
   const active = useDownloads().filter(job => ["queued", "downloading", "extracting"].includes(job.state));
-  useEffect(() => {
-    let active = true;
-    getLibrarySettings().then(value => {
-      if (active) { setDirectory(value.directory); setDatabase(value.database); }
-    }).catch(() => { if (active) setMessage("settingsFailed"); });
-    return () => { active = false; };
-  }, []);
-  const choose = async () => {
-    setBusy(true);
-    let path: string;
-    try {
-      const picked = await openFilePicker(FileSelectionType.FOLDER, directory || "~", false, true);
-      path = picked.realpath || picked.path;
-    } catch { setBusy(false); return; }
-    try {
-      const result = await setLibraryDirectory(path);
-      if (!result.success) throw new Error(result.error);
-      setDirectory(result.directory || path);
-      invalidateLibrary();
-      setMessage("folderSaved");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "unknownError"); }
-    finally { setBusy(false); }
-  };
-  const update = async () => {
-    setBusy(true); setMessage("updatingDatabase");
-    try {
-      const result = await refreshDatabase();
-      setDatabase((await getLibrarySettings()).database);
-      setMessage(result.success ? "databaseUpdated" : Object.values(result.errors)[0] || "databaseUpdateFailed");
-    } catch { setMessage("databaseUpdateFailed"); }
-    finally { setBusy(false); }
-  };
-  const updatedAt = Math.max(0, ...Object.values(database?.files || {}).filter((value): value is number =>
-    typeof value === "number" && Number.isFinite(value)));
-  const dot = (color: string) => <span aria-hidden style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color, marginRight: 8, verticalAlign: 1 }} />;
-  return <PanelSection>
-    <Card title={t.folder} hint={t.pathMoveHint}
-      action={<Button style={cardButton} disabled={busy || !directory} onClick={() => { void choose(); }}>{t.changePath}</Button>}>
-      <span style={{ ...mono, fontSize: 13, lineHeight: 1.45 }}>{directory || t.loading}</span>
-    </Card>
-    <Card title={t.catalog}
-      hint={`${t.lastUpdated} ${updatedAt ? formatTime(updatedAt) : t.neverUpdated}`}
-      action={<Button style={cardButton} disabled={busy || !database} onClick={() => { void update(); }}>{t.updateNow}</Button>}>
-      <span style={{ fontSize: 14 }}>{database === undefined ? t.loading : database.ready ? <>{dot("#59bf40")}{t.catalogReady}</> : <>{dot(colors.warning)}{t.catalogMissing}</>}</span>
-    </Card>
-    {active.length > 0 && <Card title={<div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.muted }}>
-      <span>{t.downloadActivity}</span><span>{t.activeDownloads(active.length)}</span></div>}>
-      {active.map(job => {
-        const percent = job.state === "extracting" ? 100 : job.total ? Math.floor(job.downloaded / job.total * 100) : 0;
-        return <div key={job.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-            <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.trainer_name}</span>
-            <span style={{ color: colors.accentText, flex: "0 0 auto" }}>{job.state === "downloading" ? `${percent}%` : jobStateLabel(t, job, percent)}</span></div>
-          <div role="progressbar" aria-label={job.trainer_name} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
-            style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,.1)", overflow: "hidden" }}>
-            <div style={{ width: `${percent}%`, height: "100%", background: colors.accent }} /></div>
-        </div>;
-      })}
-    </Card>}
+  async function cancel(jobId: string, appId: string) {
+    setCancelling(previous => new Set(previous).add(jobId));
+    try { trackDownload(await cancelDownload({ appId, jobId })); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "unknownError"); }
+  }
+  // The hint and the settings link sit at the bottom of the panel.
+  return <PanelSection><div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 110px)" }}>
+    {active.length > 0 && <PanelSectionRow>
+      <Focusable flow-children="column" aria-label={t.downloadsTitle} style={{
+        boxSizing: "border-box", padding: "12px 14px", borderRadius: 4, background: "rgba(0,0,0,.28)", marginBottom: 14,
+        display: "flex", flexDirection: "column", gap: 8,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.muted }}>
+          <span>{t.downloadsTitle}</span><span>{t.activeDownloads(active.length)}</span></div>
+        {active.map(job => {
+          const percent = job.state === "extracting" ? 100 : job.total ? Math.floor(job.downloaded / job.total * 100) : 0;
+          return <div key={job.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: colors.text }}>
+              <span style={{ flex: "1 1 auto", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.trainer_name}</span>
+              <span style={{ color: colors.accentText, flex: "0 0 auto" }}>{job.state === "downloading" ? `${percent}%` : jobStateLabel(t, job, percent)}</span>
+              <IconButton label={t.cancelDownload} disabled={cancelling.has(job.id)} style={{ width: 28, minWidth: 28, height: 28 }}
+                onClick={() => { void cancel(job.id, job.app_ids[0] || ""); }}><CrossIcon size={14} width={2.4} /></IconButton>
+            </Focusable>
+            <div role="progressbar" aria-label={job.trainer_name} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
+              style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,.1)", overflow: "hidden" }}>
+              <div style={{ width: `${percent}%`, height: "100%", background: colors.accent }} /></div>
+          </div>;
+        })}
+      </Focusable>
+    </PanelSectionRow>}
     {message && <PanelSectionRow><div role="status" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{errorMessage(message, t)}</div></PanelSectionRow>}
-    <PanelSectionRow><div style={{ fontSize: 11, color: colors.dim, lineHeight: 1.5 }}>{t.openHint}</div></PanelSectionRow>
-  </PanelSection>;
+    <div style={{ flex: "1 1 auto" }} />
+    <PanelSectionRow><div style={{ fontSize: 11, color: colors.dim, lineHeight: 1.5, marginBottom: 14 }}>{t.openHint}</div></PanelSectionRow>
+    <PanelSectionRow>
+      <Focusable className="gcm-row" onActivate={openSettings} onClick={openSettings} style={{
+        display: "flex", alignItems: "center", gap: 10, height: 44, boxSizing: "border-box", padding: "0 12px", borderRadius: 4,
+        background: "rgba(0,0,0,.28)", color: colors.text, fontSize: 14, cursor: "pointer",
+      }}>
+        <GearIcon />
+        <span style={{ flex: "1 1 auto" }}>{t.advancedSettings}</span>
+        <ChevronRightIcon size={14} color={colors.muted} />
+      </Focusable>
+    </PanelSectionRow>
+  </div></PanelSection>;
+}
+
+function openSettings() {
+  Navigation.Navigate(SETTINGS_ROUTE);
+  Navigation.CloseSideMenus();
 }

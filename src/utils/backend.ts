@@ -21,6 +21,8 @@ export interface TrainerResult {
   game_name: string;
   origin: string;
   version: string;
+  /** False for Cheat Tables, which are listed but cannot be downloaded yet. */
+  supported?: boolean;
 }
 
 export interface SearchResponse {
@@ -82,7 +84,35 @@ export interface LibraryResponse {
 export const getLibrary = callable<[app_id: string, game_name: string], LibraryResponse>("get_library");
 export const setLibraryDirectory = callable<[path: string], LibraryResponse>("set_library_directory");
 
-export const getLibrarySettings = callable<[], { directory: string; database: DatabaseStatus }>("get_library_settings");
+export interface DatabaseState extends DatabaseStatus {
+  updating?: boolean;
+  progress?: { done: number; total: number };
+  /** The first error of the last finished refresh. */
+  error?: string;
+}
+export const getLibrarySettings = callable<[], { directory: string; database: DatabaseState }>("get_library_settings");
+
+export interface PluginSettings { allow_multiple: boolean; auto_select: boolean; launch_delay: number }
+export const LAUNCH_DELAYS = [0, 5, 10, 15, 30, 60] as const;
+export const getSettings = callable<[], PluginSettings>("get_settings");
+const setSettingsCall = callable<[changes: Partial<PluginSettings>], { success: boolean; error?: string; settings?: PluginSettings }>("set_settings");
+export async function setSettings(changes: Partial<PluginSettings>): Promise<PluginSettings> {
+  const result = await setSettingsCall(changes);
+  if (!result.success || !result.settings) throw new Error(result.error || "unknownError");
+  return result.settings;
+}
+
+const getLauncherCall = callable<[], { success: boolean; error?: string; path?: string }>("get_launcher");
+/** The shared launcher script, written for the current settings. */
+export async function getLauncher(): Promise<string> {
+  const result = await getLauncherCall();
+  if (!result.success || !result.path) throw new Error(result.error || "unknownError");
+  return result.path;
+}
+
+export interface LogLine { time: string; level: string; message: string }
+export const getLog = callable<[], { lines: LogLine[] }>("get_log");
+export const clearLog = callable<[], void>("clear_log");
 const manageTrainer = callable<[
   action: string, app_id: string, expected_directory: string, entry_id: string,
   filename: string, source: string, game_name: string,

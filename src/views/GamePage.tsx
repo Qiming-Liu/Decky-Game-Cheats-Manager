@@ -7,7 +7,8 @@ import Modifiers from "./Modifiers";
 import CommonSettings from "./CommonSettings";
 import CustomOptions from "./CustomOptions";
 import { colors, PageStyle } from "./shell";
-import { PlayIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { AlertCircleIcon, PlayIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { isCompatToolUnsupported } from "../domain/compatTool";
 
 /** The name of the compatibility tool Steam runs the game with, e.g. "Proton 9.0". */
 function useCompatTool(appId: string | null | undefined) {
@@ -29,6 +30,7 @@ export default function GamePage() {
   const t = useTranslations();
   const appId = getAppIdFromLocation();
   const compatTool = useCompatTool(appId);
+  const unsupported = isCompatToolUnsupported(compatTool);
   // Marks the page's root so the page styles apply here and nowhere else.
   // An attribute, not a class: Steam rewrites the root's class list.
   // Steam renders the sidebar title more than once and attaches it before the
@@ -65,8 +67,12 @@ export default function GamePage() {
     <span style={{ fontSize: 12, fontWeight: 400, color: colors.muted, letterSpacing: .5 }}>{t.menuLabel}</span>
     <span style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.25, color: colors.text, overflowWrap: "anywhere" }}>{name || t.gameTitle(appId)}</span>
     <div style={{ fontSize: 12, fontWeight: 400, lineHeight: 1.5, color: colors.muted }}>
+      {compatTool && <div style={{ display: "flex", alignItems: "center", gap: 4, color: unsupported ? colors.danger : colors.warning }}>
+        {unsupported && <AlertCircleIcon size={14} color={colors.danger} />}
+        <span>{compatTool}</span>
+        {unsupported && <span>· {t.compatUnsupported}</span>}
+      </div>}
       <div>AppID {appId}</div>
-      {compatTool && <div style={{ color: colors.warning }}>{compatTool}</div>}
     </div>
   </div>;
   return <SidebarNavigation key={appId} title={title} showTitle pages={[

@@ -8,12 +8,12 @@ import { activeVersion, installedVersion, originLabel } from "../domain/trainer"
 import { Button, colors, jobStateLabel, Progress, Row, Status } from "./shell";
 import { CheckIcon, InfoIcon } from "./icons";
 
-/** The newest database file's date as YYYY-MM-DD, or "" when nothing was downloaded. */
+/** The newest database file's date as MM-DD, or "" when nothing was downloaded. */
 function databaseDate(status?: DatabaseStatus) {
   const newest = Math.max(0, ...Object.values(status?.files || {}).filter((value): value is number => typeof value === "number" && Number.isFinite(value)));
   if (!newest) return "";
   const date = new Date(newest * 1000);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 export default function TrainerSearch({ appId, initialKeyword }: { appId: string; initialKeyword: string }) {
@@ -90,8 +90,8 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
     </Focusable>
     {searching && <Spinner style={{ height: 32 }} />}
     <Status message={message || error ? errorMessage(message || error, t) : undefined} tone={message === "noResults" ? "warning" : undefined} />
-    {searched && results.length > 0 && <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: colors.muted, padding: "0 4px 16px" }}>
-      <span>{t.foundCount(results.length)}{databaseDate(database) && ` · ${t.databaseDate(databaseDate(database))}`}</span><span>{t.autoSelectAfter}</span></div>}
+    {searched && results.length > 0 && <div style={{ fontSize: 12, color: colors.muted, padding: "0 4px 16px" }}>
+      {t.foundCount(results.length)}{databaseDate(database) && ` · ${t.databaseDate(databaseDate(database))}`}</div>}
     {results.map(trainer => {
       const installed = installedVersion(trainer, library?.trainers || []);
       const otherVersion = library?.trainers?.some(item => item.trainer_id === trainer.id);
@@ -99,18 +99,21 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
       const fraction = job && job.total > 0 ? job.downloaded / job.total : 0;
       const percent = job?.state === "extracting" ? 100
         : Number.isFinite(fraction) ? Math.max(0, Math.min(100, Math.floor(fraction * 100))) : 0;
+      const unsupported = trainer.supported === false;
       const description = job ? <span style={{ color: colors.accentText }}>{jobStateLabel(t, job, percent)}</span>
+        : unsupported ? t.tableUnsupported
         : [trainer.version, originLabel(trainer.origin), otherVersion && !installed ? t.otherVersionInstalled : ""].filter(Boolean).join(" · ");
       const small = { height: 36, padding: "0 16px", fontSize: 13 } as const;
-      return <Row key={trainer.id} tall title={trainer.trainer_name} description={description}
+      return <Row key={trainer.id} tall title={trainer.trainer_name} description={description} titleColor={unsupported ? colors.muted : undefined}
         footer={job ? <Progress percent={percent} label={trainer.trainer_name} /> : undefined}>
-        {installed ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 36, fontSize: 13, color: colors.muted, padding: "0 14px" }}>
+        {unsupported ? <Button style={small} disabled>{t.unsupported}</Button>
+          : installed ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 36, fontSize: 13, color: colors.muted, padding: "0 14px" }}>
           <CheckIcon size={14} />{t.downloaded}</span>
           : job ? <Button ghost style={{ ...small, padding: "0 14px" }}
             disabled={cancelling.has(job.id) || !["queued", "downloading", "extracting"].includes(job.state)}
             onClick={() => { void cancel(job); }}>{cancelling.has(job.id) ? t.cancelling : t.cancel}</Button>
           : <Button style={small} disabled={starting.has(trainer.id) || !library?.success} onClick={() => { void download(trainer); }}>
-            {starting.has(trainer.id) ? t.starting : otherVersion ? t.downloadVersion : t.download}</Button>}
+            {starting.has(trainer.id) ? t.starting : t.download}</Button>}
       </Row>;
     })}
     {results.length > 0 && <div style={{ borderTop: `1px solid ${colors.line}` }} />}

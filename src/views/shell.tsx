@@ -37,15 +37,18 @@ const pageCss = (font: string) => `
 [data-gcm-root] input, .gcm-font .DialogButton:not([style*="monospace"]), .gcm-font input:not([style*="monospace"]) { font-family: inherit !important; }
 .gcm-ghost.gpfocus { background: #dcdedf !important; color: #0e141b !important; }
 .gcm-row.gpfocus { background: rgba(255,255,255,.1) !important; }
+.DialogContent.gcm-dialog { width: 640px; max-width: 100%; box-sizing: border-box; padding: 28px 32px 24px !important; border-radius: 6px; background: #1f2126 !important; box-shadow: 0 24px 60px rgba(0,0,0,.6); }
+.gcm-dialog .DialogInput { height: 46px; box-sizing: border-box; padding: 0 14px !important; border: 1px solid rgba(255,255,255,.14); border-radius: 3px; background: rgba(0,0,0,.35) !important; color: #fff; }
+.gcm-dialog .gcm-code .DialogInput { border-color: transparent; background: transparent !important; }
 `;
 export const PageStyle = () => <style>{pageCss(FONTS[getLanguage()] || FONTS.en)}</style>;
 
 /** Page title with the page's actions on the right; `noteEnd` moves the note to the far right. */
-export function PageHeader({ title, note, noteEnd, before, children }: {
-  title: ReactNode; note?: ReactNode; noteEnd?: boolean; before?: ReactNode; children?: ReactNode;
+export function PageHeader({ title, note, noteEnd, before, children, gap = 16 }: {
+  title: ReactNode; note?: ReactNode; noteEnd?: boolean; before?: ReactNode; children?: ReactNode; gap?: number;
 }) {
   const noteText = note && <span style={{ fontSize: 12, color: colors.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{note}</span>;
-  return <Focusable flow-children="row" style={{ display: "flex", alignItems: noteEnd ? "baseline" : "center", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
+  return <Focusable flow-children="row" style={{ display: "flex", alignItems: noteEnd ? "baseline" : "center", justifyContent: "space-between", gap: 16, marginBottom: gap }}>
     <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: before ? "center" : "baseline", gap: 12 }}>
       {before}
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: colors.text, whiteSpace: "nowrap" }}>{title}</h1>
@@ -101,10 +104,12 @@ export interface RowProps {
   tall?: boolean;
   /** Title colour; rows that are not the current choice use a softer white. */
   titleColor?: string;
+  /** Rows in a grid draw their line underneath instead of on top. */
+  lineBelow?: boolean;
 }
 
 /** One list row: optional icon, title + description, trailing controls. */
-export function Row({ icon, title, description, children, highlight, disabled, onActivate, footer, more, trailing, tall, titleColor }: RowProps) {
+export function Row({ icon, title, description, children, highlight, disabled, onActivate, footer, more, trailing, tall, titleColor, lineBelow }: RowProps) {
   const openMore = more && !disabled ? (target?: EventTarget) => showActions(more.actions, target) : undefined;
   const body = <div style={{ display: "flex", alignItems: "center", gap: 14, padding: tall ? (footer ? "13px 14px 9px" : "13px 14px") : "11px 14px" }}>
     {icon && <span aria-hidden style={{ display: "inline-flex", flex: "0 0 auto" }}>{icon}</span>}
@@ -118,7 +123,7 @@ export function Row({ icon, title, description, children, highlight, disabled, o
       {trailing}
     </Focusable>}
   </div>;
-  const style: CSSProperties = { borderTop: `1px solid ${colors.line}`, background: highlight ? colors.surface : undefined, borderRadius: 3, opacity: disabled ? .5 : 1 };
+  const style: CSSProperties = { [lineBelow ? "borderBottom" : "borderTop"]: `1px solid ${colors.line}`, background: highlight ? colors.surface : undefined, borderRadius: 3, opacity: disabled ? .5 : 1 };
   return <Focusable flow-children="row" className="gcm-row" style={style}
     {...(onActivate && !disabled ? { onActivate, onClick: onActivate } : {})}
     {...(openMore ? {
@@ -142,27 +147,24 @@ export function Status({ message, tone }: { message?: string; tone?: "warning" |
   }}>{message}</div>;
 }
 
-export const chip = (text: ReactNode, color = colors.accentText, background = "rgba(26,159,255,.18)") =>
-  <span style={{ fontSize: 12, color, background, padding: "3px 10px", borderRadius: 10, whiteSpace: "nowrap" }}>{text}</span>;
-
 /** The short label of a download job's state. */
 export const jobStateLabel = (t: Translations, job: DownloadJob, percent: number) =>
   job.state === "downloading" ? t.downloading(job.total ? percent : null) : job.state === "error" ? t.failed : t[job.state];
 
-export type Owner = "page" | "modifier" | "other";
+export type Owner = "page" | "common" | "modifier" | "other";
 
 /** What Steam receives, with every word coloured by who owns it. */
-export function Preview({ t, source, ownerOf, legend }: {
-  t: Translations; source: string; ownerOf: (definitionText: string | undefined, name: string | undefined) => Owner; legend: string;
+export function Preview({ t, source, ownerOf }: {
+  t: Translations; source: string; ownerOf: (definitionText: string | undefined, name: string | undefined) => Owner;
 }) {
-  const key = (color: string, word: string, meaning: string) => <><span style={{ color }}>{word}</span> = {meaning}</>;
+  const tone: Record<Owner, string> = { page: colors.accentText, common: "#c49bff", modifier: colors.success, other: "#a9b1b8" };
+  const key = (owner: Owner, word: string, meaning: string) => <><span style={{ color: tone[owner] }}>{word}</span> = {meaning}</>;
   const segments = LaunchOptions.parse(LaunchOptions.parse(source).canonical()).segments();
-  const tone: Record<Owner, string> = { page: colors.accentText, modifier: colors.success, other: "#a9b1b8" };
-  return <section aria-label={t.steamReceives} style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 4, background: "rgba(0,0,0,.35)" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 11, color: colors.muted, marginBottom: 4 }}>
+  return <section aria-label={t.steamReceives} style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 4, background: "rgba(0,0,0,.35)", display: "flex", flexDirection: "column", gap: 4 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 11, color: colors.muted }}>
       <span>{t.steamReceives}</span>
       <span style={{ whiteSpace: "nowrap" }}>
-        {key(colors.accentText, t.colorBlue, t.legendPage)} · {key(colors.success, t.colorGreen, t.legendModifier)} · {key("#a9b1b8", t.colorWhite, legend)}
+        {key("page", t.colorBlue, t.legendPage)} · {key("common", t.colorPurple, t.legendCommon)} · {key("modifier", t.colorGreen, t.legendModifier)} · {key("other", t.colorWhite, t.legendOther)}
       </span></div>
     <div style={{ ...mono, lineHeight: 1.6, color: tone.other }}>
       {segments.length ? segments.map((segment, index) => {

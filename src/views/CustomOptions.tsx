@@ -9,7 +9,7 @@ import { useLaunchOptions } from "../hooks/useLaunchOptions";
 import { errorMessage, useTranslations } from "../utils/i18n";
 import { Translations } from "../utils/locales";
 import { Button, colors, MenuAction, mono, PageHeader, Preview, Row, Status } from "./shell";
-import { CheckIcon, CrossIcon, LockIcon, PlusIcon } from "./icons";
+import { LockIcon, PlusIcon } from "./icons";
 
 const presetNames = (t: Translations): Record<string, string> => ({
   lsfg: t.presetLsfg, optiscaler: t.presetOptiscaler, optiscalerRemove: t.presetOptiscalerRemove, mako: t.presetMako,
@@ -18,66 +18,67 @@ export const optionName = (t: Translations, option: CustomOption) =>
   option.name || (option.preset && presetNames(t)[option.preset]) || (option.detected ? t.detectedName : "");
 const newId = () => `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const reserved = new Set([...COMMON_NAMES, ...SIDECAR_NAMES]);
-const kindLabel = (t: Translations, kind: string) => kind === "environment" ? t.tagEnvironment : kind === "prefix" ? t.tagPrefix : t.tagArgument;
 
-/** Validates one launch option typed by the user and says where it goes. */
+/** Validates one launch option typed by the user. */
 function describe(t: Translations, text: string): { ok: boolean; message: string; value?: string } {
   if (!text.trim()) return { ok: false, message: "" };
   const definition = parseLaunchOptionDefinition(text.trim());
   if (!definition) return { ok: false, message: t.invalidOption };
   if (definition.kind === "environment" && reserved.has(definition.name)) return { ok: false, message: t.reservedOption };
-  const message = definition.kind === "environment" ? t.kindEnvironment : definition.kind === "prefix" ? t.kindPrefix : t.kindArgument;
-  return { ok: true, message, value: renderLaunchOptionDefinition(definition) };
+  return { ok: true, message: "", value: renderLaunchOptionDefinition(definition) };
 }
 
-const fieldLabel = { fontSize: 13, color: "#a9b1b8", marginBottom: 6 } as const;
+const fieldLabel = { fontSize: 13, color: "#a9b1b8", marginBottom: 8 } as const;
+const field = { ...mono, fontSize: 16, lineHeight: "22px", padding: "12px 14px", overflowWrap: "normal", whiteSpace: "pre" } as const;
+
+/** Colours an option like code: variable name blue, "=" grey, value orange. */
+function Highlighted({ text }: { text: string }) {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)(=)(.*)$/s.exec(text);
+  if (!match) return <span style={{ color: "#dcdedf" }}>{text}</span>;
+  return <><span style={{ color: colors.accentText }}>{match[1]}</span><span style={{ color: colors.muted }}>=</span><span style={{ color: colors.warning }}>{match[3]}</span></>;
+}
 
 function OptionEditor({ t, option, onSave, closeModal }: {
   t: Translations; option?: CustomOption;
-  onSave: (name: string, definitions: string[] | undefined, enable: boolean) => Promise<void>; closeModal?: () => void;
+  onSave: (name: string, definitions: string[] | undefined) => Promise<void>; closeModal?: () => void;
 }) {
   const editableContent = !option?.detected && (option?.definitions.length ?? 1) === 1;
   const [content, setContent] = useState(option?.definitions[0] || "");
   const [name, setName] = useState(option ? optionName(t, option) : "");
-  const [nameTouched, setNameTouched] = useState(Boolean(option));
-  const [enable, setEnable] = useState(!option);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const check = describe(t, content);
-  // The name follows the content until the user types one.
-  const shownName = nameTouched ? name : content.trim();
   async function submit() {
-    if (!shownName.trim()) { setError(t.nameRequired); return; }
     if (editableContent && !check.ok) { setError(check.message || t.invalidOption); return; }
+    const shownName = name.trim() || content.trim();
+    if (!shownName) { setError(t.nameRequired); return; }
     setBusy(true);
-    try { await onSave(shownName.trim(), editableContent ? [check.value!] : undefined, enable); closeModal?.(); }
+    try { await onSave(shownName, editableContent ? [check.value!] : undefined); closeModal?.(); }
     catch (cause) { setError(errorMessage(cause instanceof Error ? cause.message : "unknownError", t)); setBusy(false); }
   }
-  return <ModalRoot closeModal={closeModal} className="gcm-font">
-    <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 16 }}>{option ? t.editOption : t.newOption}</div>
-    {editableContent ? <>
-      <div style={fieldLabel}>{t.optionContent}</div>
-      <TextField value={content} style={{ ...mono, fontSize: 16 }} onChange={event => { setContent(event.target.value); setError(""); }} />
-      <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, minHeight: 20, marginTop: 6, color: check.ok ? colors.success : colors.danger }}>
-        {check.message && (check.ok ? <CheckIcon size={14} /> : <CrossIcon size={14} />)}<span>{check.message}</span></div>
-      <div style={{ ...fieldLabel, fontSize: 12, marginTop: 12 }}>{t.examples}</div>
-      <Focusable flow-children="row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {["MANGOHUD=1", "gamemoderun", "-windowed", "-dx11", "DXVK_ASYNC=1"].map(example =>
-          <Button key={example} ghost style={{ ...mono, height: 32, padding: "0 12px", borderRadius: 16, fontSize: 13, border: "1px solid rgba(255,255,255,.14)", color: "#dcdedf" }}
-            onClick={() => { setContent(example); setError(""); }}>{example}</Button>)}
+  return <ModalRoot closeModal={closeModal} className="gcm-font gcm-dialog">
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>{option ? t.editOption : t.newOption}</div>
+      <div>
+        <div style={fieldLabel}>{t.optionName}</div>
+        <TextField value={name} style={{ fontSize: 16 }} onChange={event => { setName(event.target.value); setError(""); }} />
+      </div>
+      <div>
+        <div style={fieldLabel}>{t.optionContent}</div>
+        {editableContent ? <div className="gcm-code" style={{ position: "relative", borderRadius: 3, background: "#0e141b", border: "1px solid rgba(26,159,255,.6)" }}>
+          <div aria-hidden style={{ ...field, position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", border: "1px solid transparent" }}>
+            <Highlighted text={content} /></div>
+          <TextField value={content} style={{ ...field, color: "transparent", caretColor: "#fff" }}
+            onChange={event => { setContent(event.target.value); setError(""); }} />
+        </div> : <div style={{ ...field, borderRadius: 3, background: "#0e141b", border: "1px solid rgba(255,255,255,.14)", whiteSpace: "normal", overflowWrap: "anywhere" }}>
+          {option?.definitions.map((definition, index) => <span key={index}>{index ? " " : ""}<Highlighted text={definition} /></span>)}</div>}
+      </div>
+      {error && <div role="alert" style={{ fontSize: 13, color: colors.danger }}>{error}</div>}
+      <Focusable flow-children="row" style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 6 }}>
+        <Button style={{ padding: "0 18px" }} onClick={closeModal}>{t.cancel}</Button>
+        <Button primary style={{ padding: "0 22px", fontWeight: 500 }} disabled={busy} onClick={() => { void submit(); }}>{t.save}</Button>
       </Focusable>
-      <div style={{ fontSize: 12, color: colors.dim, marginTop: 8 }}>{t.optionHint}</div>
-    </> : <div style={{ ...mono, color: colors.muted, marginBottom: 12 }}>{option?.definitions.join(" ")}</div>}
-    <div style={{ ...fieldLabel, marginTop: 16 }}>{t.optionName} <span style={{ color: colors.dim }}>{!option && t.nameAuto}</span></div>
-    <TextField value={shownName} onChange={event => { setName(event.target.value); setNameTouched(true); setError(""); }} />
-    {error && <div role="alert" style={{ fontSize: 13, marginTop: 8, color: colors.danger }}>{error}</div>}
-    <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 20, paddingTop: 12, borderTop: `1px solid ${colors.line}` }}>
-      {!option && <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, flex: "1 1 auto" }}>
-        <Toggle value={enable} onChange={setEnable} />{t.enableAfterSave}</label>}
-      <div style={{ flex: "1 1 auto" }} />
-      <Button onClick={closeModal}>{t.cancel}</Button>
-      <Button primary disabled={busy} onClick={() => { void submit(); }}>{t.save}</Button>
-    </Focusable>
+    </div>
   </ModalRoot>;
 }
 
@@ -110,10 +111,11 @@ export default function CustomOptions({ appId }: { appId: string }) {
   const disabled = busy || !editable;
 
   function create() {
-    const modal = showModal(<OptionEditor t={t} onSave={async (name, definitions, enable) => {
+    const modal = showModal(<OptionEditor t={t} onSave={async (name, definitions) => {
       const option: CustomOption = { id: newId(), name, definitions: definitions! };
       await saveOptions([...saved!, option]);
-      if (enable) await update(current => setOptionEnabled(current, option, true));
+      // A new option is made for the game it was created on.
+      await update(current => setOptionEnabled(current, option, true));
     }} closeModal={() => modal.Close()} />, window);
   }
   function edit(option: CustomOption) {
@@ -147,25 +149,24 @@ export default function CustomOptions({ appId }: { appId: string }) {
   const ours = new Set(enabledOptions.flatMap(option => optionDefinitions(option).map(renderLaunchOptionDefinition)));
   const sidecarNames = new Set(SIDECAR_NAMES);
 
+  const common = new Set(COMMON_NAMES);
+  // The words other tools wrote come first: they are this game's own launch options.
+  const ordered = [...saved.filter(option => option.detected), ...saved.filter(option => !option.detected)];
+
   return <Focusable flow-children="column">
-    <PageHeader title={t.tabCustom} note={t.sharedListHint}>
-      <Button primary disabled={busy} onClick={create}><PlusIcon size={16} />{t.newShort}</Button>
+    <PageHeader title={t.tabCustom} note={t.sharedListHint} gap={14}>
+      <Button primary style={{ fontWeight: 500 }} disabled={busy} onClick={create}><PlusIcon size={16} />{t.newShort}</Button>
     </PageHeader>
     <Status message={!editable ? t.unsafeOptions : undefined} tone="warning" />
     <Status message={message || error ? errorMessage(message || error, t) : undefined} />
-    <Preview t={t} source={options} legend={t.legendCustom}
-      ownerOf={(text, name) => text && ours.has(text) ? "page" : name && sidecarNames.has(name) ? "modifier" : "other"} />
-    {saved.map(option => {
+    <Preview t={t} source={options}
+      ownerOf={(text, name) => text && ours.has(text) ? "page" : name && common.has(name) ? "common" : name && sidecarNames.has(name) ? "modifier" : "other"} />
+    {ordered.map(option => {
       const enabled = isOptionEnabled(options, option);
-      const definitions = optionDefinitions(option);
-      const kind = definitions.length === 1 ? kindLabel(t, definitions[0].kind) : undefined;
-      const description = <>
-        <span style={{ color: option.detected ? colors.warning : "#a9b1b8" }}>{option.detected ? t.detectedHint : kind} · </span>
-        <span style={mono}>{option.definitions.join(" ")}</span></>;
       const actions: MenuAction[] = [{ label: t.edit, onSelect: () => edit(option), disabled: busy }];
       if (!option.detected) actions.push({ label: t.delete, tone: "danger", onSelect: () => remove(option), disabled: busy });
       return <Row key={option.id} icon={option.detected ? <LockIcon color={colors.warning} /> : undefined}
-        title={optionName(t, option)} description={description} more={{ label: t.more, actions }}
+        title={optionName(t, option)} description={<span style={mono}>{option.definitions.join(" ")}</span>} more={{ label: t.more, actions }}
         trailing={<Toggle value={enabled} disabled={disabled} onChange={checked => setEnabled(option, checked)} />} />;
     })}
     <div style={{ borderTop: `1px solid ${colors.line}` }} />

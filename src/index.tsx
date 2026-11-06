@@ -4,7 +4,8 @@ import { FaGamepad as PluginIcon } from "react-icons/fa";
 
 import installGameMenu from "./patch";
 import { initLanguage, PLUGIN_NAME, useTranslations } from "./utils/i18n";
-import { GAME_PAGE_ROUTE } from "./utils/routes";
+import { GAME_PAGE_ROUTE, SETTINGS_ROUTE } from "./utils/routes";
+import AdvancedSettings from "./views/AdvancedSettings";
 import GamePage from "./views/GamePage";
 import Settings from "./views/Settings";
 
@@ -23,6 +24,7 @@ export default definePlugin(() => {
   const removeGameMenu = installGameMenu();
 
   routerHook.addRoute(GAME_PAGE_ROUTE, GamePage, { exact: true });
+  routerHook.addRoute(SETTINGS_ROUTE, AdvancedSettings, { exact: true });
 
   return {
     name: PLUGIN_NAME,
@@ -31,6 +33,7 @@ export default definePlugin(() => {
     icon: <PluginIcon />,
     onDismount() {
       routerHook.removeRoute(GAME_PAGE_ROUTE);
+      routerHook.removeRoute(SETTINGS_ROUTE);
       removeGameMenu();
     },
   };

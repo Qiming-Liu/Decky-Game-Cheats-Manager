@@ -13,12 +13,20 @@ function translations(messages: Messages) {
       : messages.downloading.replace("{percent}", () => String(percent)),
     downloadedTitle: (count: number) => messages.downloadedTitle.replace("{count}", () => String(count)),
     deleteDescription: (name: string) => messages.deleteDescription.replace("{name}", () => name),
-    enabledCount: (count: number) => messages.enabledCount.replace("{count}", () => String(count)),
     runningWith: (name: string) => messages.runningWith.replace("{name}", () => name),
     foundCount: (count: number) => messages.foundCount.replace("{count}", () => String(count)),
     occupiedBy: (value: string) => messages.occupiedBy.replace("{value}", () => value),
     databaseDate: (date: string) => messages.databaseDate.replace("{date}", () => date),
     activeDownloads: (count: number) => messages.activeDownloads.replace("{count}", () => String(count)),
+    moreCount: (count: number) => messages.moreCount.replace("{count}", () => String(count)),
+    selectedCount: (count: number) => messages.selectedCount.replace("{count}", () => String(count)),
+    pageLabel: (count: number) => messages.pageLabel.replace("{count}", () => String(count)),
+    orderLabel: (count: number) => messages.orderLabel.replace("{count}", () => String(count)),
+    seconds: (count: number) => messages.seconds.replace("{count}", () => String(count)),
+    recentLines: (count: number) => messages.recentLines.replace("{count}", () => String(count)),
+    updatedAt: (date: string) => messages.updatedAt.replace("{date}", () => date),
+    catalogProgress: (done: number, total: number) =>
+      messages.catalogProgress.replace("{done}", () => String(done)).replace("{total}", () => String(total)),
   };
 }
 
