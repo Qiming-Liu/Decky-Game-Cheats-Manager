@@ -13,6 +13,7 @@ import functools
 import logging
 import logging.handlers
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -91,3 +92,42 @@ def _short(value: Any) -> str:
     if isinstance(value, (list, dict, set, tuple)):
         return f"<{type(value).__name__} len={len(value)}>"
     return repr(value)
+
+
+_LINE = re.compile(r"^\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2}),\d+ \[([A-Z]+)\] (.*)$")
+
+
+def tail(limit: int = 200) -> list[dict]:
+    """The newest lines of the action log, oldest first, for the settings page."""
+    path = os.path.join(decky.DECKY_PLUGIN_LOG_DIR, _LOG_FILE_NAME)
+    try:
+        with open(path, "rb") as log:
+            log.seek(0, os.SEEK_END)
+            log.seek(max(0, log.tell() - 256 * 1024))
+            text = log.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+    lines = []
+    for line in text.splitlines()[-limit:]:
+        match = _LINE.match(line)
+        if match:
+            lines.append({"time": match[1], "level": match[2], "message": match[3]})
+        elif lines and line:
+            lines[-1]["message"] += "\n" + line
+    return lines
+
+
+def clear() -> None:
+    """Empties the action log and its rotated copies. The handler appends, so
+    truncating the open file is safe."""
+    path = os.path.join(decky.DECKY_PLUGIN_LOG_DIR, _LOG_FILE_NAME)
+    for index in range(1, _BACKUP_COUNT + 1):
+        try:
+            os.remove(f"{path}.{index}")
+        except OSError:
+            pass
+    try:
+        with open(path, "w", encoding="utf-8"):
+            pass
+    except OSError:
+        pass

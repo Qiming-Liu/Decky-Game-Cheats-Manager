@@ -18,6 +18,8 @@ import trainer_search  # noqa: E402
 import trainer_library  # noqa: E402
 import steam_library  # noqa: E402
 import custom_options  # noqa: E402
+import launcher  # noqa: E402
+import plugin_settings  # noqa: E402
 
 
 class Plugin:
@@ -63,7 +65,7 @@ class Plugin:
         return {
             "success": True,
             "results": [
-                {k: t[k] for k in ("id", "trainer_name", "game_name", "origin", "version")}
+                {k: t[k] for k in ("id", "trainer_name", "game_name", "origin", "version", "supported")}
                 for t in results
             ],
         }
@@ -74,7 +76,7 @@ class Plugin:
         if app_id and (not app_id.isascii() or not app_id.isdigit()):
             return {"success": False, "error": "invalid_app_id"}
         trainer = Plugin._last_results.get(trainer_id)
-        if trainer is None:
+        if trainer is None or not trainer.get("supported", True):
             return {"success": False, "error": "unknown_trainer"}
         if expected_version is not None and trainer.get("version", "") != expected_version:
             return {"success": False, "error": "unknown_trainer"}
@@ -113,7 +115,41 @@ class Plugin:
     async def get_library_settings(self):
         directory, database = await asyncio.gather(
             asyncio.to_thread(trainer_library.directory), asyncio.to_thread(trainer_db.status))
-        return {"directory": directory, "database": database}
+        task = self._database_task
+        updating = task is not None and not task.done()
+        result = task.result() if task is not None and task.done() and not task.cancelled() and not task.exception() else None
+        return {
+            "directory": directory,
+            "database": {
+                **database, "updating": updating, "progress": dict(trainer_db.PROGRESS),
+                # The first error of the last finished refresh; the old files stay in use.
+                "error": next(iter(result["errors"].values()), "") if result and result.get("errors") else "",
+            },
+        }
+
+    async def get_settings(self):
+        return await asyncio.to_thread(plugin_settings.load)
+
+    @action_log.log_call
+    async def set_settings(self, changes: dict):
+        try:
+            settings = await asyncio.to_thread(plugin_settings.update, changes)
+            await asyncio.to_thread(launcher.script)
+            return {"success": True, "settings": settings}
+        except (OSError, ValueError) as error:
+            return {"success": False, "error": str(error)}
+
+    async def get_launcher(self):
+        try:
+            return {"success": True, "path": await asyncio.to_thread(launcher.script)}
+        except OSError as error:
+            return {"success": False, "error": str(error)}
+
+    async def get_log(self):
+        return {"lines": await asyncio.to_thread(action_log.tail)}
+
+    async def clear_log(self):
+        await asyncio.to_thread(action_log.clear)
 
     async def get_custom_options(self):
         return {"options": await asyncio.to_thread(custom_options.load)}

@@ -86,6 +86,10 @@ def load(file_name: str):
         return None
 
 
+# Files finished out of those the running refresh downloads, for the settings page.
+PROGRESS = {"done": 0, "total": 0}
+
+
 def status() -> dict:
     files = {}
     checks = _checks(DATABASE_PATH)
@@ -109,9 +113,11 @@ def refresh(force=True) -> dict:
                          for name in DATABASE_FILES):
         return {"success": True, "errors": {}, "skipped": True}
     errors = {}
-    for name, s3_path in DATABASE_FILES.items():
-        if not force and Path(DATABASE_PATH, name).is_file() and now - checks.get(name, 0) < MAX_AGE:
-            continue
+    names = [name for name in DATABASE_FILES
+             if force or not Path(DATABASE_PATH, name).is_file() or now - checks.get(name, 0) >= MAX_AGE]
+    for index, name in enumerate(names):
+        s3_path = DATABASE_FILES[name]
+        PROGRESS.update(done=index, total=len(names))
         try:
             url = data_source.get_signed_download_url(s3_path)
             http_download.download(url, DATABASE_PATH, filename=name)
@@ -119,4 +125,5 @@ def refresh(force=True) -> dict:
             _write_json(Path(DATABASE_PATH) / STATE_FILE, checks)
         except Exception as e:  # noqa: BLE001 - reported per file, others still attempted
             errors[name] = str(e)
+    PROGRESS.update(done=len(names), total=len(names))
     return {"success": not errors, "errors": errors, "finished_at": time.time()}

@@ -32,15 +32,19 @@ def search(keyword: str, lang: str = "en") -> list[dict]:
         worker = DownloadDisplayThread(keyword)
         worker.status_pause_time = 0
         worker.run()
-        # Hide tables until the Decky UI can load and control them through Cheat Engine.
-        results = [
-            dict(entry) for entry in DownloadBaseThread.trainer_urls
-            if entry.get("origin") not in {"the_cheat_script", "ct_other"}
-            and str(entry.get("extension", "")).lower().lstrip(".") not in {"ct", "cetrainer"}
-        ]
+        results = [dict(entry) for entry in DownloadBaseThread.trainer_urls]
         failures = [event for event in worker.message.events if len(event) > 1 and event[1] == "failure"]
         if failures and not (len(failures) == 1 and failures[0][0] == "No search results found."):
             raise SearchError("database_missing" if any("update" in str(e[0]).lower() for e in failures) else "search_failed")
         for entry in results:
             entry["id"] = trainer_id(entry)
-        return results
+            # Tables are listed but cannot be downloaded until the plugin can
+            # load them through Cheat Engine.
+            entry["supported"] = not is_table(entry)
+        # Tables go last, below everything that can be downloaded.
+        return sorted(results, key=lambda entry: not entry["supported"])
+
+
+def is_table(entry: dict) -> bool:
+    return (entry.get("origin") in {"the_cheat_script", "ct_other"}
+            or str(entry.get("extension", "")).lower().lstrip(".") in {"ct", "cetrainer"})
