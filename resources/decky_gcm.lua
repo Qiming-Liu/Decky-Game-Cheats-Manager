@@ -257,8 +257,7 @@ end
 local function log(text)
   local ok, path = pcall(getAutorunPath)
   local file = ok and path and io.open(path .. "decky_gcm.log", "a")
-  if file then file:write(os.date("%H:%M:%S "), text, "
-"); file:close() end
+  if file then file:write(os.date("%H:%M:%S "), text, "\n"); file:close() end
 end
 
 log("loaded; GCM_TABLE=" .. tostring(os.getenv("GCM_TABLE")))
