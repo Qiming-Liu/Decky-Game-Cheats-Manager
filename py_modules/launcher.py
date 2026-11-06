@@ -35,8 +35,12 @@ def _render(settings: dict) -> str:
         'if /I "%~x1"==".ct" goto table', 'if /I "%~x1"==".cetrainer" goto table',
         'start "" /d "%~dp1" "%~1"', "goto started",
         # Cheat Engine learns the table from the environment: the plugin's autorun script
-        # keeps its bridge files next to it.
-        ":table", 'set "GCM_TABLE=%~1"', 'if defined GCM_CE start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%~1"',
+        # keeps its bridge files next to it. Its first-run question (CEShare) and the
+        # "restore after crash" question are answered beforehand: a game hides them.
+        ":table", 'set "GCM_TABLE=%~1"',
+        'reg add "HKCU\\Software\\Cheat Engine\\ceshare" /v enabled /d 0 /f >nul 2>&1',
+        'reg add "HKCU\\Software\\Cheat Engine\\Auto Save" /v ProcessID /d "" /f >nul 2>&1',
+        'if defined GCM_CE start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%~1"',
         ":started",
     ]
     if not settings["allow_multiple"]:

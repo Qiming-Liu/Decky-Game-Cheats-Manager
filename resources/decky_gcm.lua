@@ -253,9 +253,21 @@ local function tick()
   writeState(folder, fileName)
 end
 
+-- A short log next to this script says whether it started and what it saw.
+local function log(text)
+  local ok, path = pcall(getAutorunPath)
+  local file = ok and path and io.open(path .. "decky_gcm.log", "a")
+  if file then file:write(os.date("%H:%M:%S "), text, "
+"); file:close() end
+end
+
+log("loaded; GCM_TABLE=" .. tostring(os.getenv("GCM_TABLE")))
 if tableFolder() then
   local timer = createTimer(nil, false)
   timer.Interval = INTERVAL
-  timer.OnTimer = function() pcall(tick) end
+  timer.OnTimer = function()
+    local ok, err = pcall(tick)
+    if not ok then log("tick failed: " .. tostring(err)) end
+  end
   timer.Enabled = true
 end
