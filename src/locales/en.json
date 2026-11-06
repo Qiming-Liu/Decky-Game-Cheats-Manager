@@ -32,7 +32,6 @@
   "cancelling": "Cancelling…",
   "downloadedTitle": "Downloaded · {count}",
   "cheatEngineRequired": "Cheat Table · needs Cheat Engine, cannot be launched directly",
-  "deleteTitle": "Delete trainer?",
   "deleteDescription": "Delete {name}?",
   "delete": "Delete",
   "cancel": "Cancel",
@@ -184,5 +183,6 @@
   "clear": "Clear",
   "logEmpty": "No log yet",
   "colorWhite": "White",
-  "pageLabel": "Page {count}"
+  "pageLabel": "Page {count}",
+  "compatWarnShort": "{tool} breaks trainers · switch Proton in Properties → Compatibility"
 }

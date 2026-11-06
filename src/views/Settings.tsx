@@ -51,7 +51,7 @@ export default function Settings() {
     <div style={{ flex: "1 1 auto" }} />
     <PanelSectionRow><div style={{ fontSize: 11, color: colors.dim, lineHeight: 1.5, marginBottom: 14 }}>{t.openHint}</div></PanelSectionRow>
     <PanelSectionRow>
-      <Focusable className="gcm-row" onActivate={openSettings} onClick={openSettings} style={{
+      <Focusable className="gcm-row" onActivate={openSettings} style={{
         display: "flex", alignItems: "center", gap: 10, height: 44, boxSizing: "border-box", padding: "0 12px", borderRadius: 4,
         background: "rgba(0,0,0,.28)", color: colors.text, fontSize: 14, cursor: "pointer",
       }}>

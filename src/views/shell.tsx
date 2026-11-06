@@ -125,7 +125,7 @@ export function Row({ icon, title, description, children, highlight, disabled, o
   </div>;
   const style: CSSProperties = { [lineBelow ? "borderBottom" : "borderTop"]: `1px solid ${colors.line}`, background: highlight ? colors.surface : undefined, borderRadius: 3, opacity: disabled ? .5 : 1 };
   return <Focusable flow-children="row" className="gcm-row" style={style}
-    {...(onActivate && !disabled ? { onActivate, onClick: onActivate } : {})}
+    {...(onActivate && !disabled ? { onActivate } : {})}
     {...(openMore ? {
       onOptionsButton: () => openMore(), onOptionsActionDescription: more!.label,
       onContextMenu: (event: MouseEvent<HTMLDivElement>) => { event.preventDefault(); openMore(event.currentTarget); },

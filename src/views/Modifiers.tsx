@@ -9,7 +9,7 @@ import { cancelDownload, deleteTrainer, LINKED_ORIGIN, LocalTrainer, linkTrainer
 import { errorMessage, getLanguage, useTranslations } from "../utils/i18n";
 import { Button, colors, IconButton, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
 import {
-  BackIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
+  AlertCircleIcon, BackIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
   StopIcon, TrashIcon, WarningIcon,
 } from "./icons";
 import TrainerSearch from "./TrainerSearch";
@@ -33,7 +33,8 @@ const OrderBadge = ({ number, label }: { number: number; label: string }) =>
     fontSize: 12, fontWeight: 700, alignItems: "center", justifyContent: "center",
   }}>{number}</span>;
 
-export default function Modifiers({ appId, gameName }: { appId: string; gameName: string }) {
+/** `unsupportedTool` names the game's compatibility tool when it is known to break trainers. */
+export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { appId: string; gameName: string; unsupportedTool?: string }) {
   const t = useTranslations();
   const { library, loading, error } = useLibrary(appId, gameName);
   const jobs = useDownloads().filter(job => job.app_ids.includes(appId));
@@ -106,16 +107,14 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
     });
   }
 
+  // Deleting needs no confirmation: downloaded files go to the plugin's trash
+  // cache and come back on the next download, and a linked file is only forgotten.
   function remove(trainer: LocalTrainer) {
-    const run = () => action(async () => {
+    void action(async () => {
       if (sidecar.isSelected(trainer)) await sidecar.unselect(trainer);
       await deleteTrainer({ appId, directory: library?.directory || "", entryId: trainer.id });
       invalidateLibrary();
     });
-    // A linked file is only forgotten, never deleted, so no confirmation is needed.
-    if (trainer.origin === LINKED_ORIGIN) { void run(); return; }
-    showModal(<ConfirmModal strTitle={t.deleteTitle} strDescription={t.deleteDescription(trainer.name)}
-      strOKButtonText={t.delete} strCancelButtonText={t.cancel} onOK={() => { void run(); }} />, window);
   }
 
   const status = <Status message={message || error || sidecar.error ? errorMessage(message || error || sidecar.error, t) : undefined} />;
@@ -196,8 +195,9 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
     {status}
 
     {count > 0 && <Focusable flow-children="row" aria-label={t.runsWithGame} style={{
-      display: "flex", alignItems: "center", gap: 14, padding: "12px 12px 12px 14px", marginBottom: 16, borderRadius: 6,
-      background: "#1b2838", border: "1px solid rgba(124,196,255,.25)",
+      display: "flex", alignItems: "center", gap: 14, padding: "12px 12px 12px 14px", marginBottom: unsupportedTool ? 0 : 16,
+      borderRadius: unsupportedTool ? "6px 6px 0 0" : 6, background: "#1b2838",
+      border: `1px solid ${unsupportedTool ? "rgba(227,91,91,.6)" : "rgba(124,196,255,.25)"}`,
     }}>
       <span aria-hidden style={{
         display: "inline-flex", width: 40, height: 40, flex: "0 0 40px", borderRadius: 8, background: "rgba(26,159,255,.18)",
@@ -213,6 +213,10 @@ export default function Modifiers({ appId, gameName }: { appId: string; gameName
       </div>
       <Button disabled={busy} onClick={() => { void action(sidecar.clear); }}><StopIcon size={14} />{count > 1 ? t.stopAll : t.stopUsing}</Button>
     </Focusable>}
+    {count > 0 && unsupportedTool && <div role="alert" style={{
+      display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 16, borderRadius: "0 0 6px 6px",
+      background: "rgba(227,91,91,.16)", border: "1px solid rgba(227,91,91,.6)", borderTop: 0, color: "#ff9b9b", fontSize: 13,
+    }}><AlertCircleIcon size={18} color={colors.danger} /><span>{t.compatWarnShort(unsupportedTool)}</span></div>}
 
     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.muted, padding: "2px 4px 8px" }}>
       <span>{t.downloadedTitle(trainers.length)}</span>

@@ -32,7 +32,6 @@
   "cancelling": "取消中…",
   "downloadedTitle": "已下載 · {count}",
   "cheatEngineRequired": "作弊表 · 需要 Cheat Engine，不能直接啟動",
-  "deleteTitle": "刪除修改器？",
   "deleteDescription": "確認刪除 {name}？",
   "delete": "刪除",
   "cancel": "取消",
@@ -184,5 +183,6 @@
   "clear": "清空",
   "logEmpty": "暫無日誌",
   "colorWhite": "白",
-  "pageLabel": "第 {count} 頁"
+  "pageLabel": "第 {count} 頁",
+  "compatWarnShort": "{tool} 用不了修改器 · 去 內容 → 相容性 換 Proton"
 }

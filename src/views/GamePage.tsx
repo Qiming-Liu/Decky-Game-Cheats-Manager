@@ -76,7 +76,7 @@ export default function GamePage() {
     </div>
   </div>;
   return <SidebarNavigation key={appId} title={title} showTitle pages={[
-    { identifier: "modifiers", title: t.tabModifiers, hideTitle: true, icon: <PlayIcon />, content: <Modifiers appId={appId} gameName={name} /> },
+    { identifier: "modifiers", title: t.tabModifiers, hideTitle: true, icon: <PlayIcon />, content: <Modifiers appId={appId} gameName={name} unsupportedTool={unsupported ? compatTool : ""} /> },
     { identifier: "common", title: t.tabCommon, hideTitle: true, icon: <SlidersIcon />, content: <CommonSettings appId={appId} /> },
     { identifier: "custom", title: t.tabCustom, hideTitle: true, icon: <TerminalIcon />, content: <CustomOptions appId={appId} /> },
   ]} />;
