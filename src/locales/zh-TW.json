@@ -143,11 +143,9 @@
   "previousPage": "上一頁",
   "nextPage": "下一頁",
   "localSource": "本機",
-  "openInOrder": "按序號開",
   "moreCount": "等 {count} 個",
   "stopAll": "全部停用",
   "selectedCount": "已選 {count} · 可多選",
-  "orderLabel": "第 {count} 個",
   "tableUnsupported": "CT 表 · 暫不支援",
   "unsupported": "暫不支援",
   "audioOff": "關",
@@ -184,5 +182,7 @@
   "logEmpty": "暫無日誌",
   "colorWhite": "白",
   "pageLabel": "第 {count} 頁",
-  "compatWarnShort": "{tool} 用不了修改器 · 去 內容 → 相容性 換 Proton"
+  "compatWarnShort": "{tool} 用不了修改器",
+  "selected": "已選",
+  "switchProton": "換 Proton"
 }

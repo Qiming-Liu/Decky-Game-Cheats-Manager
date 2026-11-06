@@ -1,5 +1,5 @@
 import { FileSelectionType, openFilePicker } from "@decky/api";
-import { ConfirmModal, DialogButton, Focusable, showModal, Spinner } from "@decky/ui";
+import { ConfirmModal, DialogButton, Focusable, Navigation, showModal, Spinner } from "@decky/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invalidateLibrary, useLibrary } from "../hooks/useLibrary";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
@@ -9,7 +9,7 @@ import { cancelDownload, deleteTrainer, LINKED_ORIGIN, LocalTrainer, linkTrainer
 import { errorMessage, getLanguage, useTranslations } from "../utils/i18n";
 import { Button, colors, IconButton, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
 import {
-  AlertCircleIcon, BackIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
+  AlertCircleIcon, BackIcon, CheckCircleIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
   StopIcon, TrashIcon, WarningIcon,
 } from "./icons";
 import TrainerSearch from "./TrainerSearch";
@@ -26,12 +26,12 @@ const InUseBadge = ({ label }: { label: string }) =>
     alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 3px rgba(26,159,255,.25)",
   }}><LinkIcon size={16} width={2.6} /></span>;
 
-/** The order badge of a selected trainer when several may run. */
-const OrderBadge = ({ number, label }: { number: number; label: string }) =>
-  <span aria-label={label} style={{
+/** A ticked box: a selected trainer when several may run. */
+const CheckedBox = ({ label }: { label: string }) =>
+  <span role="img" aria-label={label} style={{
     display: "inline-flex", width: 20, height: 20, flex: "0 0 20px", borderRadius: 5, background: colors.accent, color: "#fff",
-    fontSize: 12, fontWeight: 700, alignItems: "center", justifyContent: "center",
-  }}>{number}</span>;
+    alignItems: "center", justifyContent: "center",
+  }}><CheckIcon size={14} width={3.2} /></span>;
 
 /** `unsupportedTool` names the game's compatibility tool when it is known to break trainers. */
 export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { appId: string; gameName: string; unsupportedTool?: string }) {
@@ -139,12 +139,11 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
   const ordered = [...trainers].sort((a, b) => collator.compare(a.name, b.name));
   const rows = [
     ...ordered.map(trainer => {
-      const order = sidecar.indexOf(trainer);
-      const current = order >= 0;
+      const current = sidecar.indexOf(trainer) >= 0;
       const linked = trainer.origin === LINKED_ORIGIN;
       const programs = programsOf(trainer);
       const icon = trainer.missing ? <WarningIcon size={20} color={colors.warning} />
-        : multiple ? current ? <OrderBadge number={order + 1} label={t.orderLabel(order + 1)} /> : <SquareIcon size={20} color={colors.dim} />
+        : multiple ? current ? <CheckedBox label={t.selected} /> : <SquareIcon size={20} color={colors.dim} />
         : current ? <CheckCircleIcon size={20} color={colors.accent} /> : linked ? <FolderIcon size={20} color={colors.dim} /> : <CircleIcon size={20} color={colors.dim} />;
       const description = trainer.missing ? <span style={{ color: colors.warning }}>{t.fileMissingDetail}</span>
         : linked ? `${t.localSource} · ${trainer.path}`
@@ -189,6 +188,8 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
 
   return <Focusable flow-children="column">
     <PageHeader title={t.tabModifiers}>
+      {unsupportedTool && <Button style={{ background: colors.danger, color: "#fff" }}
+        onClick={() => Navigation.Navigate(`/app/${appId}/properties/compatibility`)}><AlertCircleIcon size={16} />{t.switchProton}</Button>}
       <Button onClick={() => setSearching(true)}><SearchIcon size={16} />{t.search}</Button>
       {localFileButton}
     </PageHeader>
@@ -209,13 +210,15 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
           {count > 1 && <span style={{ flex: "0 0 auto", fontSize: 14, fontWeight: 400, color: colors.accentText }}>{t.moreCount(count)}</span>}
         </div>
         <div style={{ fontSize: 12, color: colors.muted }}>
-          <span style={{ color: colors.accentText }}>{t.runsWithGame}</span>{count > 1 && ` · ${t.openInOrder}`} · {t.switchWindowHint}</div>
+          <span style={{ color: colors.accentText }}>{t.runsWithGame}</span> · {t.switchWindowHint}</div>
       </div>
       <Button disabled={busy} onClick={() => { void action(sidecar.clear); }}><StopIcon size={14} />{count > 1 ? t.stopAll : t.stopUsing}</Button>
     </Focusable>}
-    {count > 0 && unsupportedTool && <div role="alert" style={{
-      display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 16, borderRadius: "0 0 6px 6px",
-      background: "rgba(227,91,91,.16)", border: "1px solid rgba(227,91,91,.6)", borderTop: 0, color: "#ff9b9b", fontSize: 13,
+    {/* Always at the top on a broken Proton: joined under the in-use card, or on its own. */}
+    {unsupportedTool && <div role="alert" style={{
+      display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 16,
+      borderRadius: count > 0 ? "0 0 6px 6px" : 6, background: "rgba(227,91,91,.16)",
+      border: "1px solid rgba(227,91,91,.6)", ...(count > 0 ? { borderTop: 0 } : {}), color: "#ff9b9b", fontSize: 13,
     }}><AlertCircleIcon size={18} color={colors.danger} /><span>{t.compatWarnShort(unsupportedTool)}</span></div>}
 
     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.muted, padding: "2px 4px 8px" }}>

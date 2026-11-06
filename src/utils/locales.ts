@@ -22,7 +22,6 @@ function translations(messages: Messages) {
     selectedCount: (count: number) => messages.selectedCount.replace("{count}", () => String(count)),
     compatWarnShort: (tool: string) => messages.compatWarnShort.replace("{tool}", () => tool),
     pageLabel: (count: number) => messages.pageLabel.replace("{count}", () => String(count)),
-    orderLabel: (count: number) => messages.orderLabel.replace("{count}", () => String(count)),
     seconds: (count: number) => messages.seconds.replace("{count}", () => String(count)),
     recentLines: (count: number) => messages.recentLines.replace("{count}", () => String(count)),
     updatedAt: (date: string) => messages.updatedAt.replace("{date}", () => date),

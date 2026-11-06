@@ -143,11 +143,9 @@
   "previousPage": "Previous page",
   "nextPage": "Next page",
   "localSource": "Local",
-  "openInOrder": "Opens in order",
   "moreCount": "+{count}",
   "stopAll": "Stop all",
   "selectedCount": "{count} selected · multi-select",
-  "orderLabel": "Number {count}",
   "tableUnsupported": "CT table · not supported yet",
   "unsupported": "Not supported",
   "audioOff": "Off",
@@ -184,5 +182,7 @@
   "logEmpty": "No log yet",
   "colorWhite": "White",
   "pageLabel": "Page {count}",
-  "compatWarnShort": "{tool} breaks trainers · switch Proton in Properties → Compatibility"
+  "compatWarnShort": "{tool} breaks trainers",
+  "selected": "Selected",
+  "switchProton": "Switch Proton"
 }
