@@ -38,3 +38,12 @@ class CustomOptionsTest(unittest.TestCase):
     def test_damaged_file_falls_back_to_presets(self):
         self.path.write_text('{"options": "broken"}', encoding="utf-8")
         self.assertEqual(len(custom_options.load()), len(custom_options.PRESETS))
+
+    def test_game_options_keep_their_app_id_and_reject_bad_ones(self):
+        saved = custom_options.save([{"id": "game-1", "name": "Skip", "app_id": "632360", "definitions": ["-skipintro"]},
+                                     {"id": "global-1", "name": "Overlay", "definitions": ["MANGOHUD=1"]}])
+        self.assertEqual(saved[0]["app_id"], "632360")
+        self.assertNotIn("app_id", saved[1])
+        for app_id in ("../1", 42, "", "１２"):
+            with self.assertRaises(ValueError):
+                custom_options.save([{"id": "x", "app_id": app_id, "definitions": ["-a"]}])

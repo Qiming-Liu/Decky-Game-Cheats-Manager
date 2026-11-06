@@ -1,5 +1,5 @@
 import { FileSelectionType, openFilePicker } from "@decky/api";
-import { ConfirmModal, DialogButton, Focusable, Navigation, showModal, Spinner } from "@decky/ui";
+import { Focusable, Navigation, Spinner } from "@decky/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invalidateLibrary, useLibrary } from "../hooks/useLibrary";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
@@ -9,7 +9,7 @@ import { cancelDownload, deleteTrainer, LINKED_ORIGIN, LocalTrainer, linkTrainer
 import { errorMessage, getLanguage, useTranslations } from "../utils/i18n";
 import { Button, colors, IconButton, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
 import {
-  AlertCircleIcon, BackIcon, CheckCircleIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
+  AlertCircleIcon, BackIcon, CheckCircleIcon, CheckIcon, ChevronUpIcon, TerminalIcon, WindowIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
   StopIcon, TrashIcon, WarningIcon,
 } from "./icons";
 import TrainerSearch from "./TrainerSearch";
@@ -43,6 +43,7 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState<string>();
   const [cancelling, setCancelling] = useState(new Set<string>());
   const [page, setPage] = useState(0);
   // A short last page keeps the height of a full one so the pager never moves.
@@ -68,15 +69,39 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
     finally { setBusy(false); }
   }
 
+  // A trainer with several programs opens in place to list them; only one row is open at a time.
   function choose(trainer: LocalTrainer) {
     const programs = programsOf(trainer);
     if (!programs.length) { setMessage("executableRequired"); return; }
     if (programs.length === 1) { void action(() => sidecar.select(trainer, programs[0])); return; }
-    const modal = showModal(<ConfirmModal strTitle={t.chooseProgram} bAlertDialog strOKButtonText={t.cancel}
-      strDescription={<Focusable flow-children="column">{programs.map(file =>
-        <DialogButton key={file} style={{ marginBottom: 6 }} onClick={() => {
-          modal.Close(); void action(() => sidecar.select(trainer, file));
-        }}>{file}</DialogButton>)}</Focusable>} />, window);
+    setOpen(open === trainer.id ? undefined : trainer.id);
+  }
+
+  /** The programs of an opened trainer, each with its own action. */
+  function programList(trainer: LocalTrainer) {
+    return <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 14px 12px 48px" }}>
+      {programsOf(trainer).map(file => {
+        const path = sidecar.programPath(trainer, file);
+        const script = /\.bat$/i.test(file);
+        return <Focusable key={file} flow-children="row" style={{
+          display: "flex", alignItems: "center", gap: 12, padding: "8px 10px 8px 12px", borderRadius: 4,
+          background: path && sidecar.multiple ? "rgba(26,159,255,.1)" : undefined,
+        }}>
+          {sidecar.multiple && (path ? <CheckedBox label={t.selected} /> : <SquareIcon size={20} color={colors.dim} />)}
+          <span style={{ display: "inline-flex", color: colors.muted }}>{script ? <TerminalIcon /> : <WindowIcon />}</span>
+          <span style={{ flex: "1 1 auto", minWidth: 0, fontSize: 14, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{file}</span>
+          <span style={{ fontSize: 12, color: colors.muted, whiteSpace: "nowrap" }}>{script ? t.kindScript : t.kindProgram}</span>
+          {sidecar.multiple
+            ? <Button style={{ ...small, minWidth: 96 }} disabled={busy} onClick={() => {
+                void action(() => path ? sidecar.removeProgram(path) : sidecar.select(trainer, file));
+              }}>{path ? t.removeProgram : t.addProgram}</Button>
+            : path ? <InUseBadge label={t.inUse} />
+            : <Button style={{ ...small, minWidth: 96 }} disabled={busy} onClick={() => {
+                void action(async () => { await sidecar.select(trainer, file); setOpen(undefined); });
+              }}>{t.useThis}</Button>}
+        </Focusable>;
+      })}
+    </Focusable>;
   }
 
   // A finished download is used automatically when the setting is on and
@@ -149,10 +174,19 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
         : linked ? `${t.localSource} · ${trainer.path}`
         : !programs.length ? t.cheatEngineRequired
         : `${t.originOnline}${trainer.version ? ` · ${trainer.version}` : ""}`;
-      // One trainer: a row selects itself. Several: a row toggles in and out.
+      // Several programs: the row opens. One program: the row selects it, or
+      // toggles it in and out when several trainers may run.
       const activate = trainer.missing ? undefined
+        : programs.length > 1 ? () => choose(trainer)
         : current ? multiple ? () => { void action(() => sidecar.unselect(trainer)); } : undefined
         : () => choose(trainer);
+      if (open === trainer.id) {
+        return <Row key={trainer.id} tall open icon={icon} title={trainer.name} titleColor={colors.text}
+          description={<span style={{ color: colors.accentText }}>{multiple ? t.programCountMultiple(programs.length) : t.programCount(programs.length)}</span>}
+          disabled={!sidecar.ready} onActivate={activate} footer={programList(trainer)}>
+          <IconButton label={t.collapse} onClick={() => setOpen(undefined)}><ChevronUpIcon /></IconButton>
+        </Row>;
+      }
       return <Row key={trainer.id} tall icon={icon} title={trainer.name} description={description} highlight={current}
         titleColor={current ? colors.text : "#dcdedf"} disabled={busy || !sidecar.ready} onActivate={activate}>
         {current && <InUseBadge label={t.inUse} />}

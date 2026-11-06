@@ -106,10 +106,12 @@ export interface RowProps {
   titleColor?: string;
   /** Rows in a grid draw their line underneath instead of on top. */
   lineBelow?: boolean;
+  /** An opened row, e.g. a trainer showing its programs. */
+  open?: boolean;
 }
 
 /** One list row: optional icon, title + description, trailing controls. */
-export function Row({ icon, title, description, children, highlight, disabled, onActivate, footer, more, trailing, tall, titleColor, lineBelow }: RowProps) {
+export function Row({ icon, title, description, children, highlight, disabled, onActivate, footer, more, trailing, tall, titleColor, lineBelow, open }: RowProps) {
   const openMore = more && !disabled ? (target?: EventTarget) => showActions(more.actions, target) : undefined;
   const body = <div style={{ display: "flex", alignItems: "center", gap: 14, padding: tall ? (footer ? "13px 14px 9px" : "13px 14px") : "11px 14px" }}>
     {icon && <span aria-hidden style={{ display: "inline-flex", flex: "0 0 auto" }}>{icon}</span>}
@@ -123,7 +125,10 @@ export function Row({ icon, title, description, children, highlight, disabled, o
       {trailing}
     </Focusable>}
   </div>;
-  const style: CSSProperties = { [lineBelow ? "borderBottom" : "borderTop"]: `1px solid ${colors.line}`, background: highlight ? colors.surface : undefined, borderRadius: 3, opacity: disabled ? .5 : 1 };
+  const style: CSSProperties = {
+    [lineBelow ? "borderBottom" : "borderTop"]: `1px solid ${colors.line}`, background: open ? "#1b2838" : highlight ? colors.surface : undefined,
+    borderRadius: open ? 4 : 3, boxShadow: open ? "inset 0 0 0 1px rgba(124,196,255,.35)" : undefined, opacity: disabled ? .5 : 1,
+  };
   return <Focusable flow-children="row" className="gcm-row" style={style}
     {...(onActivate && !disabled ? { onActivate } : {})}
     {...(openMore ? {
@@ -151,20 +156,20 @@ export function Status({ message, tone }: { message?: string; tone?: "warning" |
 export const jobStateLabel = (t: Translations, job: DownloadJob, percent: number) =>
   job.state === "downloading" ? t.downloading(job.total ? percent : null) : job.state === "error" ? t.failed : t[job.state];
 
-export type Owner = "page" | "common" | "modifier" | "other";
+export type Owner = "page" | "game" | "common" | "modifier" | "other";
 
 /** What Steam receives, with every word coloured by who owns it. */
 export function Preview({ t, source, ownerOf }: {
   t: Translations; source: string; ownerOf: (definitionText: string | undefined, name: string | undefined) => Owner;
 }) {
-  const tone: Record<Owner, string> = { page: colors.accentText, common: "#c49bff", modifier: colors.success, other: "#a9b1b8" };
+  const tone: Record<Owner, string> = { page: colors.accentText, game: "#5ee0c8", common: "#c49bff", modifier: colors.success, other: "#a9b1b8" };
   const key = (owner: Owner, word: string, meaning: string) => <><span style={{ color: tone[owner] }}>{word}</span> = {meaning}</>;
   const segments = LaunchOptions.parse(LaunchOptions.parse(source).canonical()).segments();
   return <section aria-label={t.steamReceives} style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 4, background: "rgba(0,0,0,.35)", display: "flex", flexDirection: "column", gap: 4 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 11, color: colors.muted }}>
       <span>{t.steamReceives}</span>
       <span style={{ whiteSpace: "nowrap" }}>
-        {key("page", t.colorBlue, t.legendPage)} · {key("common", t.colorPurple, t.legendCommon)} · {key("modifier", t.colorGreen, t.legendModifier)} · {key("other", t.colorWhite, t.legendOther)}
+        {key("page", t.colorBlue, t.globalOptions)} · {key("game", t.colorTeal, t.gameOptions)} · {key("common", t.colorPurple, t.legendCommon)} · {key("modifier", t.colorGreen, t.legendModifier)} · {key("other", t.colorWhite, t.legendOther)}
       </span></div>
     <div style={{ ...mono, lineHeight: 1.6, color: tone.other }}>
       {segments.length ? segments.map((segment, index) => {

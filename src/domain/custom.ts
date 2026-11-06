@@ -10,7 +10,16 @@ export interface CustomOption {
   name: string;
   preset?: string;
   detected?: boolean;
+  /** Set for an option that belongs to one game; otherwise every game lists it. */
+  app_id?: string;
   definitions: string[];
+}
+
+export type OptionGroup = "global" | "game";
+
+/** The options a game shows in a group: global ones, or its own. */
+export function optionsIn(saved: readonly CustomOption[], group: OptionGroup, appId: string): CustomOption[] {
+  return saved.filter(option => group === "game" ? option.app_id === appId : !option.app_id && !option.detected);
 }
 
 const RESERVED = new Set([...COMMON_NAMES, ...SIDECAR_NAMES]);

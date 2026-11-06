@@ -1,4 +1,4 @@
-import { useTranslations } from "../utils/i18n";
+import { PLUGIN_NAME, useTranslations } from "../utils/i18n";
 import { SidebarNavigation } from "@decky/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { checkDatabaseUpdate, cleanupTrash } from "../utils/backend";
@@ -64,7 +64,7 @@ export default function GamePage() {
   // The game is named in the sidebar so every tab shows which game it edits.
   const title = <div ref={titleRef} style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
     <PageStyle />
-    <span style={{ fontSize: 12, fontWeight: 400, color: colors.muted, letterSpacing: .5 }}>{t.menuLabel}</span>
+    <span style={{ fontSize: 12, fontWeight: 400, color: colors.muted, letterSpacing: .5 }}>{PLUGIN_NAME}</span>
     <span style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.25, color: colors.text, overflowWrap: "anywhere" }}>{name || t.gameTitle(appId)}</span>
     <div style={{ fontSize: 12, fontWeight: 400, lineHeight: 1.5, color: colors.muted }}>
       {compatTool && <div style={{ display: "flex", alignItems: "center", gap: 4, color: unsupported ? colors.danger : colors.warning }}>

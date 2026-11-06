@@ -46,7 +46,7 @@ export function useTranslations(): Translations {
   useEffect(() => { void initLanguage(); }, []);
   return translations(locale);
 }
-export const menuItemLabel = () => translations().menuLabel;
+export const menuItemLabel = () => PLUGIN_NAME;
 
 // Older backend errors remain English or machine codes. Translate known values
 // at the presentation boundary without changing identifiers or diagnostic logs.

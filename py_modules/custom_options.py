@@ -50,6 +50,12 @@ def _clean(options) -> list[dict]:
             option["preset"] = item["preset"]
         if item.get("detected") is True:
             option["detected"] = True
+        # An option with an app ID belongs to that game only; others are global.
+        app_id = item.get("app_id")
+        if app_id is not None:
+            if not isinstance(app_id, str) or not app_id.isascii() or not app_id.isdigit() or len(app_id) > 20:
+                raise ValueError("Invalid custom launch options.")
+            option["app_id"] = app_id
         cleaned.append(option)
     return cleaned
 

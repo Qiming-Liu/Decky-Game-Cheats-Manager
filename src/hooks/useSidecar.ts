@@ -39,16 +39,27 @@ export function useSidecar(appId: string, directory: string) {
     const current = (selected || []).filter(item => item !== path);
     await save(multiple ? [...current, path] : [path]);
   }
-  function indexOf(trainer: LocalTrainer) {
+  const inside = (trainer: LocalTrainer, item: string) => {
     const prefix = trainer.path.endsWith("/") ? trainer.path : `${trainer.path}/`;
-    return (selected || []).findIndex(item => item === trainer.path || item.startsWith(prefix));
+    return item === trainer.path || item.startsWith(prefix);
+  };
+  function indexOf(trainer: LocalTrainer) {
+    return (selected || []).findIndex(item => inside(trainer, item));
+  }
+  /** The selected path of one program inside a trainer, if it is selected. */
+  function programPath(trainer: LocalTrainer, filename: string) {
+    const target = `${trainer.path.replace(/\/$/, "")}/${filename}`;
+    return (multiple ? selected : selected?.slice(0, 1))?.find(item => item === target || (item === trainer.path && trainer.path.endsWith(`/${filename}`)));
   }
   return {
     ready: selected !== undefined, error: error || scriptError, selected: (multiple ? selected : selected?.slice(0, 1)) || [], multiple, refresh,
     select: async (trainer: LocalTrainer, filename: string) =>
       add(await trainerExecutable({ appId, directory, entryId: trainer.id, filename })),
     use: add,
-    unselect: (trainer: LocalTrainer) => save((selected || []).filter((_, index) => index !== indexOf(trainer))),
+    unselect: (trainer: LocalTrainer) => save((selected || []).filter(item => !inside(trainer, item))),
+    /** Stops one program; other programs of the same trainer stay selected. */
+    removeProgram: (path: string) => save((selected || []).filter(item => item !== path)),
+    programPath,
     clear: () => save([]),
     indexOf: (trainer: LocalTrainer) => { const index = indexOf(trainer); return multiple || index === 0 ? index : -1; },
     isSelected: (trainer: LocalTrainer) => indexOf(trainer) >= 0,
