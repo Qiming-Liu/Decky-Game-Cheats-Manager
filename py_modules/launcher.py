@@ -34,7 +34,9 @@ def _render(settings: dict) -> str:
         '  shift', '  shift', '  goto next', ')',
         'if /I "%~x1"==".ct" goto table', 'if /I "%~x1"==".cetrainer" goto table',
         'start "" /d "%~dp1" "%~1"', "goto started",
-        ":table", 'if defined GCM_CE start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%~1"',
+        # Cheat Engine learns the table from the environment: the plugin's autorun script
+        # keeps its bridge files next to it.
+        ":table", 'set "GCM_TABLE=%~1"', 'if defined GCM_CE start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%~1"',
         ":started",
     ]
     if not settings["allow_multiple"]:

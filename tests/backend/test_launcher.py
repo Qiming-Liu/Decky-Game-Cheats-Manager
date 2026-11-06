@@ -30,7 +30,7 @@ class LauncherTest(unittest.TestCase):
         self.assertIn(':started\r\ngoto :eof', text)
         # Tables are handed to Cheat Engine, named by the --ce pair before the programs.
         self.assertIn('if /I "%~x1"==".ct" goto table', text)
-        self.assertIn('if defined GCM_CE start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%~1"', text)
+        self.assertIn('set "GCM_TABLE=%~1"\r\nif defined GCM_CE start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%~1"', text)
         self.assertNotIn("ping", text)
         plugin_settings.update({"launch_delay": 10, "allow_multiple": True})
         text = self.read()
