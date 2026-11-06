@@ -19,7 +19,7 @@ export default function Settings() {
   const [message, setMessage] = useState("");
   const [cancelling, setCancelling] = useState(new Set<string>());
   const active = useDownloads().filter(job => ["queued", "downloading", "extracting"].includes(job.state));
-  const running = useRunningTable(visible);
+  const running = useRunningTable();
   async function cancel(jobId: string, appId: string) {
     setCancelling(previous => new Set(previous).add(jobId));
     try { trackDownload(await cancelDownload({ appId, jobId })); }

@@ -107,7 +107,7 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
       const fraction = job && job.total > 0 ? job.downloaded / job.total : 0;
       const percent = job?.state === "extracting" ? 100
         : Number.isFinite(fraction) ? Math.max(0, Math.min(100, Math.floor(fraction * 100))) : 0;
-      const details = [trainer.version, originLabel(trainer.origin), trainer.author, otherVersion && !installed ? t.otherVersionInstalled : ""]
+      const details = [trainer.version, trainer.table ? t.tableLabel : originLabel(trainer.origin), trainer.author, otherVersion && !installed ? t.otherVersionInstalled : ""]
         .filter(Boolean).join(" · ");
       const description = job ? <span style={{ color: colors.accentText }}>{jobStateLabel(t, job, percent)}</span>
         : trainer.table ? <>{details} · {t.cheatEngineRequired}{engine && !engine.installed && <span style={{ color: colors.warning }}> · {t.ceDownloadsWith}</span>}</>

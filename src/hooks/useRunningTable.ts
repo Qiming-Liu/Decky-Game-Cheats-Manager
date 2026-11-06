@@ -9,12 +9,13 @@ export interface RunningTable { appId: string; name: string; table: string }
 /**
  * The table the running game opened through the launcher, if any: the Quick
  * Access panel shows its switches. Steam has no event for this, so the running
- * game is checked every two seconds while the panel is open.
+ * game is checked every two seconds while the panel is mounted. (The in-game
+ * overlay has its own Quick Access window, whose visibility Decky's hook does
+ * not report, so mounting is the only signal.)
  */
-export function useRunningTable(active: boolean): RunningTable | undefined {
+export function useRunningTable(): RunningTable | undefined {
   const [running, setRunning] = useState<RunningTable>();
   useEffect(() => {
-    if (!active) return;
     let disposed = false;
     let lastAppId = "";
     const check = async () => {
@@ -35,6 +36,6 @@ export function useRunningTable(active: boolean): RunningTable | undefined {
     void check();
     const timer = window.setInterval(() => { void check(); }, 2000);
     return () => { disposed = true; window.clearInterval(timer); };
-  }, [active]);
+  }, []);
   return running;
 }

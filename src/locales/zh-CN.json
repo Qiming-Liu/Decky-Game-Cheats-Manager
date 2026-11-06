@@ -238,5 +238,6 @@
   "panelOnCount": "{count} 开",
   "toggle": "切换",
   "expand": "展开",
-  "returnToGame": "返回"
+  "returnToGame": "返回",
+  "tableLabel": "CT 表"
 }

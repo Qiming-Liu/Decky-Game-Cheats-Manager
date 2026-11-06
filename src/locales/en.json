@@ -238,5 +238,6 @@
   "panelOnCount": "{count} on",
   "toggle": "Toggle",
   "expand": "Expand",
-  "returnToGame": "Back"
+  "returnToGame": "Back",
+  "tableLabel": "CT table"
 }
