@@ -168,7 +168,7 @@ class DownloadManager:
                 shutil.move(str(downloaded), content / downloaded.name)
             if not any(p.is_file() and p.suffix.lower() in trainer_library.TRAINER_EXTENSIONS for p in content.rglob("*")):
                 raise ValueError("No .exe or .CT trainer files found in the download.")
-            metadata = {k: trainer.get(k, "") for k in ("trainer_name", "game_name", "version", "origin")}
+            metadata = {k: trainer.get(k, "") for k in ("trainer_name", "game_name", "version", "origin", "author")}
             metadata.update(schema_version=1, trainer_id=trainer["id"], source_path=trainer["url"],
                             content_hashes=trainer_library.content_hashes(content, check))
             check()
@@ -200,6 +200,12 @@ class DownloadManager:
                 self._cancel.pop(job["id"], None)
             if job["state"] == "done":
                 action_log.log_event(f"installed {job['trainer_name']} -> {job['path']}")
+                # A fresh Cheat Engine gets the plugin's autorun script right away.
+                if (Path(job["path"]) / trainer_library.CHEAT_ENGINE).is_file():
+                    try:
+                        trainer_library.install_bridge(job["path"])
+                    except OSError as error:
+                        action_log.log_warning(f"cheat engine bridge not installed: {error}")
             elif job["state"] == "error":
                 action_log.log_warning(f"download failed: {job['error']}")
 

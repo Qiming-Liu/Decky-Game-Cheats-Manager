@@ -38,13 +38,34 @@ def search(keyword: str, lang: str = "en") -> list[dict]:
             raise SearchError("database_missing" if any("update" in str(e[0]).lower() for e in failures) else "search_failed")
         for entry in results:
             entry["id"] = trainer_id(entry)
-            # Tables are listed but cannot be downloaded until the plugin can
-            # load them through Cheat Engine.
-            entry["supported"] = not is_table(entry)
-        # Tables go last, below everything that can be downloaded.
-        return sorted(results, key=lambda entry: not entry["supported"])
+            # Tables open through Cheat Engine, which the UI installs on demand.
+            entry["table"] = is_table(entry)
+        return results
 
 
 def is_table(entry: dict) -> bool:
     return (entry.get("origin") in {"the_cheat_script", "ct_other"}
             or str(entry.get("extension", "")).lower().lstrip(".") in {"ct", "cetrainer"})
+
+
+def is_cheat_engine(entry: dict) -> bool:
+    """Cheat Engine ships in the catalog as an ordinary entry named after itself."""
+    return (str(entry.get("game_name", "")).lower() == "none"
+            and str(entry.get("custom_name", "")).strip().lower() == "cheat engine")
+
+
+def cheat_engine_entry() -> dict | None:
+    """The catalog's Cheat Engine package as a downloadable trainer, if listed."""
+    import trainer_db
+    catalog = trainer_db.load("gcm_trainers.json")
+    for trainer in catalog if isinstance(catalog, list) else []:
+        if isinstance(trainer, dict) and is_cheat_engine(trainer) and trainer.get("gcm_url"):
+            version = str(trainer.get("version", "") or "")
+            entry = {
+                "game_name": "none", "origin": trainer.get("origin", "other"), "author": "",
+                "custom_name": "Cheat Engine", "url": trainer["gcm_url"], "version": version, "extension": "",
+                "trainer_name": f"Cheat Engine {version}".strip(), "table": False,
+            }
+            entry["id"] = trainer_id(entry)
+            return entry
+    return None

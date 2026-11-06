@@ -2,13 +2,15 @@ import { FileSelectionType, openFilePicker } from "@decky/api";
 import { Dropdown, Focusable, Navigation, Toggle } from "@decky/ui";
 import { ReactNode, useEffect, useState } from "react";
 import { changeSettings, useSettings } from "../hooks/useSettings";
+import { changeCheatEngine, useCheatEngine } from "../hooks/useCheatEngine";
+import { trackDownload, useDownloads } from "../hooks/useDownloads";
 import { invalidateLibrary } from "../hooks/useLibrary";
 import {
-  clearLog, DatabaseState, getLibrarySettings, getLog, LAUNCH_DELAYS, LogLine, refreshDatabase, setLibraryDirectory,
+  clearLog, DatabaseState, getLibrarySettings, getLog, LAUNCH_DELAYS, LogLine, manageCheatEngine, refreshDatabase, setLibraryDirectory,
 } from "../utils/backend";
 import { errorKey, errorMessage, useTranslations } from "../utils/i18n";
 import { Translations } from "../utils/locales";
-import { Button, colors, IconButton, mono, PageStyle, Row, SectionTitle, Status } from "./shell";
+import { Button, colors, IconButton, jobStateLabel, mono, PageStyle, Row, SectionTitle, Status } from "./shell";
 import { BackIcon, CopyIcon, TrashIcon } from "./icons";
 
 const LOG_LINES = 200;
@@ -57,6 +59,9 @@ async function copyText(text: string) {
 export default function AdvancedSettings() {
   const t = useTranslations();
   const settings = useSettings();
+  const engine = useCheatEngine();
+  // Cheat Engine downloads belong to no game: they are the jobs without one.
+  const engineJob = useDownloads().find(job => !job.app_ids.length && ["queued", "downloading", "extracting"].includes(job.state));
   const [directory, setDirectory] = useState("");
   const [database, setDatabase] = useState<DatabaseState>();
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -97,6 +102,23 @@ export default function AdvancedSettings() {
     void run(async () => { await refreshDatabase(); await loadStorage(); });
   }
   const change = (changes: Parameters<typeof changeSettings>[0]) => { void run(() => changeSettings(changes)); };
+  const downloadEngine = () => run(async () => {
+    const result = await manageCheatEngine("download");
+    if (result.job) trackDownload(result.job);
+  });
+  async function linkEngine() {
+    let folder: string;
+    try {
+      const picked = await openFilePicker(FileSelectionType.FOLDER, "/home", false, true);
+      folder = picked.realpath || picked.path;
+    } catch { return; }
+    await run(() => changeCheatEngine("link", folder));
+  }
+  const percent = engineJob ? engineJob.state === "extracting" ? 100 : engineJob.total ? Math.floor(engineJob.downloaded / engineJob.total * 100) : 0 : 0;
+  const engineDescription = engineJob ? <span style={{ color: colors.accentText }}>{jobStateLabel(t, engineJob, percent)}</span>
+    : !engine ? t.loading
+    : engine.installed ? <span style={mono}>{engine.linked ? `${t.ceLinked} · ` : ""}{engine.folder}</span>
+    : t.ceSharedHint;
 
   const updatedAt = Math.max(0, ...Object.values(database?.files || {}).filter((value): value is number =>
     typeof value === "number" && Number.isFinite(value)));
@@ -141,6 +163,27 @@ export default function AdvancedSettings() {
         </Row>
         <div style={{ borderTop: `1px solid ${colors.line}` }} />
 
+        <SectionTitle>{t.ceTitle}</SectionTitle>
+        <Row highlight={Boolean(engine?.installed)} description={engineDescription}
+          title={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {dot(engine?.installed ? "#59bf40" : colors.dim)}{engine?.installed ? t.ceInstalled(engine.version) : t.ceNotInstalled}</span>}>
+          {engine?.installed
+            ? <>
+              <Button style={smallButton} disabled={busy || Boolean(engineJob)} onClick={() => { void downloadEngine(); }}>{t.ceReinstall}</Button>
+              <IconButton tone="danger" label={t.delete} disabled={busy} onClick={() => { void run(() => changeCheatEngine("delete")); }}><TrashIcon /></IconButton>
+            </>
+            : <>
+              <Button style={smallButton} disabled={busy} onClick={() => { void linkEngine(); }}>{t.ceHaveIt}</Button>
+              <Button style={smallButton} disabled={busy || Boolean(engineJob)} onClick={() => { void downloadEngine(); }}>{t.download}</Button>
+            </>}
+        </Row>
+        <Row title={t.ceLanguage} description={t.ceLanguageHint}>
+          <Toggle value={Boolean(engine?.zh_cn)} disabled={busy || !engine?.installed}
+            onChange={value => { void run(() => changeCheatEngine("language", value ? "zh_CN" : "")); }} />
+        </Row>
+        <div style={{ borderTop: `1px solid ${colors.line}` }} />
+        <div style={{ fontSize: 11, color: colors.dim, padding: "6px 4px 0" }}>{t.ceUnderProton}</div>
+
         <SectionTitle>{t.storage}</SectionTitle>
         <Focusable flow-children="row" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
           <Card label={t.folder} hint={t.pathMoveHint}
@@ -180,5 +223,6 @@ export default function AdvancedSettings() {
 }
 
 const cardButton = { width: "100%", height: 36, fontSize: 13 } as const;
+const smallButton = { height: 36, padding: "0 14px", fontSize: 13 } as const;
 const statusLine = { display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: colors.text } as const;
 const logButton = { width: 32, minWidth: 32, height: 30, background: colors.button, color: colors.text } as const;

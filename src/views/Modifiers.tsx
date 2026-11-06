@@ -5,19 +5,28 @@ import { invalidateLibrary, useLibrary } from "../hooks/useLibrary";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
 import { useSettings } from "../hooks/useSettings";
 import { useSidecar } from "../hooks/useSidecar";
-import { cancelDownload, deleteTrainer, LINKED_ORIGIN, LocalTrainer, linkTrainer } from "../utils/backend";
+import { changeCheatEngine } from "../hooks/useCheatEngine";
+import { isTableFile, launchableFiles, tableOnly } from "../domain/trainer";
+import { isTable } from "../domain/sidecar";
+import { cancelDownload, deleteTrainer, LINKED_ORIGIN, LocalTrainer, linkTrainer, manageCheatEngine } from "../utils/backend";
 import { errorMessage, getLanguage, useTranslations } from "../utils/i18n";
 import { Button, colors, IconButton, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
 import {
   AlertCircleIcon, BackIcon, CheckCircleIcon, CheckIcon, ChevronUpIcon, TerminalIcon, WindowIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
-  StopIcon, TrashIcon, WarningIcon,
+  StopIcon, TableIcon, TrashIcon, WarningIcon,
 } from "./icons";
 import TrainerSearch from "./TrainerSearch";
 
 const PAGE_SIZE = 5;
-const programsOf = (trainer: LocalTrainer) => trainer.files.filter(file => /\.(exe|bat)$/i.test(file));
+const programsOf = launchableFiles;
 const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const small = { height: 36, padding: "0 14px", fontSize: 13 } as const;
+/** A gamepad button badge drawn inside a button, so the shortcut is visible. */
+export const Badge = ({ button, dark }: { button: string; dark?: boolean }) =>
+  <span aria-hidden style={{
+    display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, borderRadius: 10,
+    background: dark ? "rgba(14,20,27,.85)" : "#a9b1b8", color: dark ? "#fff" : "#0e141b", fontSize: 12, fontWeight: 700,
+  }}>{button}</span>;
 
 /** Marks a trainer in use: a solid blue disc with the "starts with the game" link. */
 const InUseBadge = ({ label }: { label: string }) =>
@@ -44,6 +53,10 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState<string>();
+  // The table to use once Cheat Engine, downloaded for it, is installed.
+  const [pendingTable, setPendingTable] = useState<string>();
+  const engine = sidecar.cheatEngine;
+  const needsEngine = (trainer: LocalTrainer) => programsOf(trainer).some(isTableFile) && !engine?.installed;
   const [cancelling, setCancelling] = useState(new Set<string>());
   const [page, setPage] = useState(0);
   // A short last page keeps the height of a full one so the pager never moves.
@@ -70,27 +83,66 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
   }
 
   // A trainer with several programs opens in place to list them; only one row is open at a time.
+  // A table without Cheat Engine opens in place too, offering to install it.
   function choose(trainer: LocalTrainer) {
     const programs = programsOf(trainer);
     if (!programs.length) { setMessage("executableRequired"); return; }
-    if (programs.length === 1) { void action(() => sidecar.select(trainer, programs[0])); return; }
+    if (programs.length === 1 && !needsEngine(trainer)) { void action(() => sidecar.select(trainer, programs[0])); return; }
     setOpen(open === trainer.id ? undefined : trainer.id);
+  }
+
+  /** Uses a table once Cheat Engine is there: directly, or by opening the row to pick one. */
+  function useTable(trainer: LocalTrainer) {
+    const programs = programsOf(trainer);
+    if (programs.length === 1) void action(() => sidecar.select(trainer, programs[0]));
+    else setOpen(trainer.id);
+  }
+
+  async function pickCheatEngineFolder() {
+    let folder: string;
+    try {
+      const picked = await openFilePicker(FileSelectionType.FOLDER, "/home", false, true);
+      folder = picked.realpath || picked.path;
+    } catch { return; }
+    await action(() => changeCheatEngine("link", folder));
+  }
+
+  /** The in-place offer to install Cheat Engine for an opened table. */
+  function enginePanel(trainer: LocalTrainer) {
+    const download = () => action(async () => {
+      const result = await manageCheatEngine("download");
+      if (result.job) trackDownload(result.job);
+      setPendingTable(trainer.id);
+      setOpen(undefined);
+    });
+    return <Focusable flow-children="row" style={{
+      display: "flex", alignItems: "center", gap: 12, margin: "0 14px 12px 48px", padding: "10px 10px 10px 12px", borderRadius: 4, background: "rgba(255,255,255,.1)",
+    }}>
+      <span style={{ display: "inline-flex", color: colors.warning }}><DownloadIcon size={18} width={2.2} /></span>
+      <span style={{ flex: "1 1 auto", minWidth: 0, fontSize: 14, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.ceNeedFirst}</span>
+      <Button style={small} disabled={busy} onClick={() => { void pickCheatEngineFolder(); }}
+        onOptionsButton={() => { void pickCheatEngineFolder(); }} onOptionsActionDescription={t.ceHaveIt}><Badge button="Y" />{t.ceHaveIt}</Button>
+      <Button style={{ ...small, minWidth: 96, background: "#dcdedf", color: "#0e141b" }} disabled={busy} onClick={() => { void download(); }}
+        onSecondaryButton={() => { void download(); }} onSecondaryActionDescription={t.ceDownloadUse}><Badge button="X" dark />{t.ceDownloadUse}</Button>
+    </Focusable>;
   }
 
   /** The programs of an opened trainer, each with its own action. */
   function programList(trainer: LocalTrainer) {
+    if (needsEngine(trainer)) return enginePanel(trainer);
     return <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 14px 12px 48px" }}>
       {programsOf(trainer).map(file => {
         const path = sidecar.programPath(trainer, file);
         const script = /\.bat$/i.test(file);
+        const table = isTableFile(file);
         return <Focusable key={file} flow-children="row" style={{
           display: "flex", alignItems: "center", gap: 12, padding: "8px 10px 8px 12px", borderRadius: 4,
           background: path && sidecar.multiple ? "rgba(26,159,255,.1)" : undefined,
         }}>
           {sidecar.multiple && (path ? <CheckedBox label={t.selected} /> : <SquareIcon size={20} color={colors.dim} />)}
-          <span style={{ display: "inline-flex", color: colors.muted }}>{script ? <TerminalIcon /> : <WindowIcon />}</span>
+          <span style={{ display: "inline-flex", color: colors.muted }}>{table ? <TableIcon /> : script ? <TerminalIcon /> : <WindowIcon />}</span>
           <span style={{ flex: "1 1 auto", minWidth: 0, fontSize: 14, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{file}</span>
-          <span style={{ fontSize: 12, color: colors.muted, whiteSpace: "nowrap" }}>{script ? t.kindScript : t.kindProgram}</span>
+          <span style={{ fontSize: 12, color: colors.muted, whiteSpace: "nowrap" }}>{table ? t.kindTable : script ? t.kindScript : t.kindProgram}</span>
           {sidecar.multiple
             ? <Button style={{ ...small, minWidth: 96 }} disabled={busy} onClick={() => {
                 void action(() => path ? sidecar.removeProgram(path) : sidecar.select(trainer, file));
@@ -105,23 +157,32 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
   }
 
   // A finished download is used automatically when the setting is on and
-  // nothing is in use yet.
+  // nothing is in use yet. A table waits until Cheat Engine is installed too.
   useEffect(() => {
     if (!settings?.auto_select || !sidecar.ready || sidecar.selected.length || busy) return;
     for (const job of jobs) {
       if (job.state !== "done" || !job.path || autoSelected.current.has(job.id)) continue;
-      autoSelected.current.add(job.id);
       const trainer = trainers.find(item => item.path === job.path);
+      if (trainer && needsEngine(trainer)) continue;
+      autoSelected.current.add(job.id);
       const programs = trainer ? programsOf(trainer) : [];
       if (trainer && programs.length === 1) void action(() => sidecar.select(trainer, programs[0]));
       return;
     }
-  }, [jobs, trainers, sidecar.ready, sidecar.selected.length, settings?.auto_select]);
+  }, [jobs, trainers, sidecar.ready, sidecar.selected.length, settings?.auto_select, engine?.installed]);
+
+  // The table that asked for Cheat Engine is used as soon as it is installed.
+  useEffect(() => {
+    if (!pendingTable || !engine?.installed || !sidecar.ready || busy) return;
+    const trainer = trainers.find(item => item.id === pendingTable);
+    setPendingTable(undefined);
+    if (trainer) useTable(trainer);
+  }, [pendingTable, engine?.installed, sidecar.ready, busy, trainers]);
 
   async function pickLocalFile() {
     let source: string;
     try {
-      const picked = await openFilePicker(FileSelectionType.FILE, "/home", true, true, undefined, ["exe", "bat"]);
+      const picked = await openFilePicker(FileSelectionType.FILE, "/home", true, true, undefined, ["exe", "bat", "ct", "cetrainer"]);
       source = picked.realpath || picked.path;
     } catch { return; }
     await action(async () => {
@@ -167,22 +228,27 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
       const current = sidecar.indexOf(trainer) >= 0;
       const linked = trainer.origin === LINKED_ORIGIN;
       const programs = programsOf(trainer);
+      const tables = programs.filter(isTableFile);
       const icon = trainer.missing ? <WarningIcon size={20} color={colors.warning} />
         : multiple ? current ? <CheckedBox label={t.selected} /> : <SquareIcon size={20} color={colors.dim} />
         : current ? <CheckCircleIcon size={20} color={colors.accent} /> : linked ? <FolderIcon size={20} color={colors.dim} /> : <CircleIcon size={20} color={colors.dim} />;
+      const source = linked ? `${t.localSource} · ${trainer.path}`
+        : [t.originOnline, trainer.version, trainer.author, tables.length ? t.kindTable : ""].filter(Boolean).join(" · ");
       const description = trainer.missing ? <span style={{ color: colors.warning }}>{t.fileMissingDetail}</span>
-        : linked ? `${t.localSource} · ${trainer.path}`
-        : !programs.length ? t.cheatEngineRequired
-        : `${t.originOnline}${trainer.version ? ` · ${trainer.version}` : ""}`;
+        : !programs.length ? t.executableRequired
+        : needsEngine(trainer) ? <>{source} · <span style={{ color: colors.warning }}>{t.cheatEngineRequired}</span></>
+        : source;
       // Several programs: the row opens. One program: the row selects it, or
       // toggles it in and out when several trainers may run.
       const activate = trainer.missing ? undefined
-        : programs.length > 1 ? () => choose(trainer)
+        : programs.length > 1 || needsEngine(trainer) ? () => choose(trainer)
         : current ? multiple ? () => { void action(() => sidecar.unselect(trainer)); } : undefined
         : () => choose(trainer);
       if (open === trainer.id) {
+        const count = tableOnly(trainer) ? t.tableCount(programs.length)
+          : multiple ? t.programCountMultiple(programs.length) : t.programCount(programs.length);
         return <Row key={trainer.id} tall open icon={icon} title={trainer.name} titleColor={colors.text}
-          description={<span style={{ color: colors.accentText }}>{multiple ? t.programCountMultiple(programs.length) : t.programCount(programs.length)}</span>}
+          description={<span style={{ color: needsEngine(trainer) ? colors.warning : colors.accentText }}>{needsEngine(trainer) ? source : count}</span>}
           disabled={!sidecar.ready} onActivate={activate} footer={programList(trainer)}>
           <IconButton label={t.collapse} onClick={() => setOpen(undefined)}><ChevronUpIcon /></IconButton>
         </Row>;
@@ -244,9 +310,12 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
           {count > 1 && <span style={{ flex: "0 0 auto", fontSize: 14, fontWeight: 400, color: colors.accentText }}>{t.moreCount(count)}</span>}
         </div>
         <div style={{ fontSize: 12, color: colors.muted }}>
-          <span style={{ color: colors.accentText }}>{t.runsWithGame}</span> · {t.switchWindowHint}</div>
+          <span style={{ color: colors.accentText }}>{t.runsWithGame}</span>
+          {sidecar.selected.some(isTable) && ` · ${t.viaCheatEngine(engine?.version || "")}`} · {t.switchWindowHint}</div>
       </div>
-      <Button disabled={busy} onClick={() => { void action(sidecar.clear); }}><StopIcon size={14} />{count > 1 ? t.stopAll : t.stopUsing}</Button>
+      <Button disabled={busy} onClick={() => { void action(sidecar.clear); }}
+        onOptionsButton={() => { if (!busy) void action(sidecar.clear); }} onOptionsActionDescription={count > 1 ? t.stopAll : t.stopUsing}>
+        <StopIcon size={14} />{count > 1 ? t.stopAll : t.stopUsing}<Badge button="Y" /></Button>
     </Focusable>}
     {/* Always at the top on a broken Proton: joined under the in-use card, or on its own. */}
     {unsupportedTool && <div role="alert" style={{

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getLauncher, LocalTrainer, trainerExecutable } from "../utils/backend";
-import { editSidecar, launcherCommand, launcherPrograms, sidecarPath } from "../domain/sidecar";
+import { editSidecar, isTable, launcherCommand, launcherPrograms, sidecarPath } from "../domain/sidecar";
+import { useCheatEngine } from "./useCheatEngine";
 import { useLaunchOptions } from "./useLaunchOptions";
 import { useSettings } from "./useSettings";
 
@@ -14,12 +15,13 @@ const folderOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
 export function useSidecar(appId: string, directory: string) {
   const { options, error, refresh, update } = useLaunchOptions(appId);
   const settings = useSettings();
+  const engine = useCheatEngine();
   const [script, setScript] = useState<string>();
   const [scriptError, setScriptError] = useState("");
   // Fetching the script also rewrites it for the current settings.
   useEffect(() => {
     let active = true;
-    getLauncher().then(path => { if (active) setScript(path); })
+    getLauncher().then(launcher => { if (active) setScript(launcher.path); })
       .catch(cause => { if (active) setScriptError(cause instanceof Error ? cause.message : "unknownError"); });
     return () => { active = false; };
   }, [settings?.allow_multiple, settings?.launch_delay]);
@@ -28,10 +30,14 @@ export function useSidecar(appId: string, directory: string) {
   const selected = options === undefined || script === undefined ? undefined : launcherPrograms(command, script);
   const multiple = Boolean(settings?.allow_multiple);
 
+  // Tables open through Cheat Engine, whose folder the game must see as well.
   async function save(programs: string[]) {
     if (script === undefined) throw new Error("optionsNotLoaded");
+    const cheatEngine = programs.some(isTable) ? engine?.path || "" : "";
+    if (programs.some(isTable) && !cheatEngine) throw new Error("cheat_engine_missing");
+    const folders = [folderOf(script), ...(cheatEngine ? [folderOf(cheatEngine)] : []), ...programs.map(folderOf)];
     await update(current => programs.length
-      ? editSidecar(current, launcherCommand(script, programs), [folderOf(script), ...new Set(programs.map(folderOf))])
+      ? editSidecar(current, launcherCommand(script, programs, cheatEngine), [...new Set(folders)])
       : editSidecar(current));
   }
   /** Adds a program, or replaces the selection when only one may run. */
@@ -52,7 +58,10 @@ export function useSidecar(appId: string, directory: string) {
     return (multiple ? selected : selected?.slice(0, 1))?.find(item => item === target || (item === trainer.path && trainer.path.endsWith(`/${filename}`)));
   }
   return {
-    ready: selected !== undefined, error: error || scriptError, selected: (multiple ? selected : selected?.slice(0, 1)) || [], multiple, refresh,
+    ready: selected !== undefined && engine !== undefined, error: error || scriptError,
+    selected: (multiple ? selected : selected?.slice(0, 1)) || [], multiple, refresh,
+    /** Cheat Engine, which every table needs; undefined until known. */
+    cheatEngine: engine,
     select: async (trainer: LocalTrainer, filename: string) =>
       add(await trainerExecutable({ appId, directory, entryId: trainer.id, filename })),
     use: add,

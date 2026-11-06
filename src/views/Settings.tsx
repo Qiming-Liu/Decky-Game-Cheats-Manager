@@ -2,6 +2,8 @@ import { Focusable, Navigation, PanelSection, PanelSectionRow, useQuickAccessVis
 import { useEffect, useState } from "react";
 import { cancelDownload, cleanupTrash } from "../utils/backend";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
+import { useRunningTable } from "../hooks/useRunningTable";
+import TablePanel from "./TablePanel";
 import { errorMessage, useTranslations } from "../utils/i18n";
 import { SETTINGS_ROUTE } from "../utils/routes";
 import { colors, IconButton, jobStateLabel } from "./shell";
@@ -17,6 +19,7 @@ export default function Settings() {
   const [message, setMessage] = useState("");
   const [cancelling, setCancelling] = useState(new Set<string>());
   const active = useDownloads().filter(job => ["queued", "downloading", "extracting"].includes(job.state));
+  const running = useRunningTable(visible);
   async function cancel(jobId: string, appId: string) {
     setCancelling(previous => new Set(previous).add(jobId));
     try { trackDownload(await cancelDownload({ appId, jobId })); }
@@ -24,6 +27,7 @@ export default function Settings() {
   }
   // The hint and the settings link sit at the bottom of the panel.
   return <PanelSection><div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 110px)" }}>
+    {running && <TablePanel key={running.table} running={running} />}
     {active.length > 0 && <PanelSectionRow>
       <Focusable flow-children="column" aria-label={t.downloadsTitle} style={{
         boxSizing: "border-box", padding: "12px 14px", borderRadius: 4, background: "rgba(0,0,0,.28)", marginBottom: 14,
@@ -49,7 +53,7 @@ export default function Settings() {
     </PanelSectionRow>}
     {message && <PanelSectionRow><div role="status" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{errorMessage(message, t)}</div></PanelSectionRow>}
     <div style={{ flex: "1 1 auto" }} />
-    <PanelSectionRow><div style={{ fontSize: 11, color: colors.dim, lineHeight: 1.5, marginBottom: 14 }}>{t.openHint}</div></PanelSectionRow>
+    <PanelSectionRow><div style={{ fontSize: 11, color: colors.dim, lineHeight: 1.5, marginBottom: 14 }}>{running ? t.openHint : `${t.openHint} · ${t.panelOpenGameHint}`}</div></PanelSectionRow>
     <PanelSectionRow>
       <Focusable className="gcm-row" onActivate={openSettings} style={{
         display: "flex", alignItems: "center", gap: 10, height: 44, boxSizing: "border-box", padding: "0 12px", borderRadius: 4,

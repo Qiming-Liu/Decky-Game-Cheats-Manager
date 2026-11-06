@@ -6,7 +6,8 @@ order. Wine's cmd reads a batch file in the console code page, so the file
 itself stays ASCII; program names arrive as arguments and keep any language.
 The file carries the shared settings, so changing them applies to every game
 at once: the delay before the programs start, and whether only the first
-program starts.
+program starts. A `--ce <path>` pair before the programs names Cheat Engine;
+tables (.ct, .cetrainer) are opened through it instead of started directly.
 """
 from __future__ import annotations
 
@@ -27,7 +28,15 @@ def _render(settings: dict) -> str:
     if delay:
         # `timeout` returns at once without a console; ping waits about one second per echo.
         lines.append(f"ping -n {delay + 1} 127.0.0.1 >nul")
-    lines += [":next", 'if "%~1"=="" goto :eof', 'start "" /d "%~dp1" "%~1"']
+    lines += [
+        ":next", 'if "%~1"=="" goto :eof',
+        'if "%~1"=="--ce" (', '  set "GCM_CE=%~2"', '  for %%I in ("%~2") do set "GCM_CE_DIR=%%~dpI"',
+        '  shift', '  shift', '  goto next', ')',
+        'if /I "%~x1"==".ct" goto table', 'if /I "%~x1"==".cetrainer" goto table',
+        'start "" /d "%~dp1" "%~1"', "goto started",
+        ":table", 'if defined GCM_CE start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%~1"',
+        ":started",
+    ]
     if not settings["allow_multiple"]:
         lines.append("goto :eof")
     lines += ["shift", "goto next"]

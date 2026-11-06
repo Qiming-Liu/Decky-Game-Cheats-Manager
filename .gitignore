@@ -26,3 +26,5 @@ tests/private/
 
 # Local AI agent notes (shared across Decky plugins)
 AGENTS.md
+# Copied from the upstream submodule at build time
+resources/ce-languages/

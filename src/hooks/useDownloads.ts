@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { DownloadJob, getDownloads } from "../utils/backend";
+import { invalidateCheatEngine } from "./useCheatEngine";
 import { invalidateLibrary } from "./useLibrary";
 
 let jobs: DownloadJob[] = [];
@@ -20,6 +21,7 @@ async function poll(epoch: number) {
     if (signature !== completed) {
       completed = signature;
       invalidateLibrary();
+      invalidateCheatEngine();
     }
   } catch {
     // Temporary RPC errors do not stop synchronization.

@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { cancelDownload, DatabaseStatus, DownloadJob, downloadTrainer, getDatabaseStatus, searchTrainers, TrainerResult } from "../utils/backend";
 import { useLibrary, invalidateLibrary } from "../hooks/useLibrary";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
+import { useCheatEngine } from "../hooks/useCheatEngine";
 import { activeVersion, installedVersion, originLabel } from "../domain/trainer";
+import { manageCheatEngine } from "../utils/backend";
 import { Button, colors, jobStateLabel, Progress, Row, Status } from "./shell";
 import { CheckIcon, InfoIcon } from "./icons";
 
@@ -20,6 +22,7 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
   const t = useTranslations();
   const { library, error } = useLibrary(appId, initialKeyword);
   const jobs = useDownloads();
+  const engine = useCheatEngine();
   const [keyword, setKeyword] = useState(initialKeyword);
   const [results, setResults] = useState<TrainerResult[]>([]);
   const [message, setMessage] = useState("");
@@ -67,9 +70,14 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
       setCancelling(previous => { const next = new Set(previous); next.delete(jobId); return next; });
     }
   }
+  // A table without Cheat Engine installed downloads Cheat Engine first.
   async function download(trainer: TrainerResult) {
     setStarting(previous => new Set(previous).add(trainer.id));
     try {
+      if (trainer.table && engine && !engine.installed) {
+        const result = await manageCheatEngine("download");
+        if (result.job) trackDownload(result.job);
+      }
       const response = await downloadTrainer(trainer.id, appId, library?.directory || "", trainer.version);
       if (!response.success || !response.job) {
         if (response.error === "library_changed") invalidateLibrary();
@@ -99,15 +107,15 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
       const fraction = job && job.total > 0 ? job.downloaded / job.total : 0;
       const percent = job?.state === "extracting" ? 100
         : Number.isFinite(fraction) ? Math.max(0, Math.min(100, Math.floor(fraction * 100))) : 0;
-      const unsupported = trainer.supported === false;
+      const details = [trainer.version, originLabel(trainer.origin), trainer.author, otherVersion && !installed ? t.otherVersionInstalled : ""]
+        .filter(Boolean).join(" · ");
       const description = job ? <span style={{ color: colors.accentText }}>{jobStateLabel(t, job, percent)}</span>
-        : unsupported ? t.tableUnsupported
-        : [trainer.version, originLabel(trainer.origin), otherVersion && !installed ? t.otherVersionInstalled : ""].filter(Boolean).join(" · ");
+        : trainer.table ? <>{details} · {t.cheatEngineRequired}{engine && !engine.installed && <span style={{ color: colors.warning }}> · {t.ceDownloadsWith}</span>}</>
+        : details;
       const small = { height: 36, padding: "0 16px", fontSize: 13 } as const;
-      return <Row key={trainer.id} tall title={trainer.trainer_name} description={description} titleColor={unsupported ? colors.muted : undefined}
+      return <Row key={trainer.id} tall title={trainer.trainer_name} description={description}
         footer={job ? <Progress percent={percent} label={trainer.trainer_name} /> : undefined}>
-        {unsupported ? <Button style={small} disabled>{t.unsupported}</Button>
-          : installed ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 36, fontSize: 13, color: colors.muted, padding: "0 14px" }}>
+        {installed ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 36, fontSize: 13, color: colors.muted, padding: "0 14px" }}>
           <CheckIcon size={14} />{t.downloaded}</span>
           : job ? <Button ghost style={{ ...small, padding: "0 14px" }}
             disabled={cancelling.has(job.id) || !["queued", "downloading", "extracting"].includes(job.state)}

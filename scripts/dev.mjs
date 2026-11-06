@@ -81,7 +81,7 @@ function executable(name) {
 export const SETTLE_MS = { frontend: 3000, backend: 5000 };
 const WATCHED = {
   frontend: ["src", "rollup.config.js"],
-  backend: ["main.py", "py_modules", "requirements.txt", "package.json", "scripts/build_gcm_core.py", "gcm/src/scripts", "plugin.json", "scripts/dev-session.sh"],
+  backend: ["main.py", "py_modules", "requirements.txt", "package.json", "scripts/build_gcm_core.py", "gcm/src/scripts", "plugin.json", "scripts/dev-session.sh", "resources"],
 };
 
 export function fingerprint(directory = repo) {
@@ -118,7 +118,8 @@ export function shouldSynchronize(settled, current, changedAt, now) {
 // stay on the host; the generated core is sent through encrypted SSH.
 export function copyRuntime(source, destination, vendor) {
   fs.mkdirSync(destination, { recursive: true });
-  for (const name of ["dist", "main.py", "package.json", "plugin.json", "py_modules"]) {
+  for (const name of ["dist", "main.py", "package.json", "plugin.json", "py_modules", "resources"]) {
+    if (!fs.existsSync(path.join(source, name))) continue;
     fs.cpSync(path.join(source, name), path.join(destination, name), {
       recursive: true, preserveTimestamps: true,
       filter: (file) => {
@@ -128,6 +129,9 @@ export function copyRuntime(source, destination, vendor) {
     });
   }
   if (vendor) fs.cpSync(vendor, path.join(destination, "py_modules/_vendor"), { recursive: true });
+  // The Cheat Engine language pack ships from the upstream submodule.
+  const languages = path.join(source, "gcm/src/dependency/CE Translations/zh_CN");
+  if (fs.existsSync(languages)) fs.cpSync(languages, path.join(destination, "resources/ce-languages/zh_CN"), { recursive: true });
 }
 
 export function loadDevEnv(directory, environment = process.env) {

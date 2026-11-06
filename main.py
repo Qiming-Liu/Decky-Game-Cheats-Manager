@@ -18,6 +18,8 @@ import trainer_search  # noqa: E402
 import trainer_library  # noqa: E402
 import steam_library  # noqa: E402
 import custom_options  # noqa: E402
+import ct_bridge  # noqa: E402
+import trainer_table  # noqa: E402
 import launcher  # noqa: E402
 import plugin_settings  # noqa: E402
 
@@ -65,7 +67,7 @@ class Plugin:
         return {
             "success": True,
             "results": [
-                {k: t[k] for k in ("id", "trainer_name", "game_name", "origin", "version", "supported")}
+                {k: t.get(k, "") for k in ("id", "trainer_name", "game_name", "origin", "version", "author", "table")}
                 for t in results
             ],
         }
@@ -76,7 +78,7 @@ class Plugin:
         if app_id and (not app_id.isascii() or not app_id.isdigit()):
             return {"success": False, "error": "invalid_app_id"}
         trainer = Plugin._last_results.get(trainer_id)
-        if trainer is None or not trainer.get("supported", True):
+        if trainer is None:
             return {"success": False, "error": "unknown_trainer"}
         if expected_version is not None and trainer.get("version", "") != expected_version:
             return {"success": False, "error": "unknown_trainer"}
@@ -141,8 +143,39 @@ class Plugin:
 
     async def get_launcher(self):
         try:
-            return {"success": True, "path": await asyncio.to_thread(launcher.script)}
+            path, engine = await asyncio.gather(
+                asyncio.to_thread(launcher.script), asyncio.to_thread(trainer_library.cheat_engine))
+            return {"success": True, "path": path, "cheat_engine": engine["path"]}
         except OSError as error:
+            return {"success": False, "error": str(error)}
+
+    async def get_cheat_engine(self):
+        return await asyncio.to_thread(trainer_library.cheat_engine)
+
+    @action_log.log_call
+    async def manage_cheat_engine(self, action: str, value: str = ""):
+        """Installs, links, removes or customizes the shared Cheat Engine."""
+        try:
+            if action == "download":
+                entry = await asyncio.to_thread(trainer_search.cheat_engine_entry)
+                if entry is None:
+                    return {"success": False, "error": "cheat_engine_unlisted"}
+                Plugin._last_results[entry["id"]] = entry
+                job = await trainer_download.start(entry, app_id="")
+                return {"success": True, "job": job}
+            if action == "link":
+                await asyncio.to_thread(trainer_library.link_cheat_engine, value)
+            elif action == "delete":
+                await asyncio.to_thread(trainer_library.remove_cheat_engine)
+            elif action == "language":
+                await asyncio.to_thread(trainer_library.set_cheat_engine_language, value == "zh_CN")
+            elif action == "bridge":
+                if not await asyncio.to_thread(trainer_library.install_bridge):
+                    raise ValueError("cheat_engine_missing")
+            else:
+                raise ValueError("Unknown Cheat Engine action.")
+            return {"success": True, "cheat_engine": await asyncio.to_thread(trainer_library.cheat_engine)}
+        except (OSError, ValueError) as error:
             return {"success": False, "error": str(error)}
 
     async def get_log(self):
@@ -178,6 +211,49 @@ class Plugin:
             else:
                 raise ValueError("Unknown trainer action.")
             return {"success": True, **result}
+        except (OSError, ValueError) as error:
+            return {"success": False, "error": str(error)}
+
+    async def get_table(self, path: str):
+        """The entries of a table file, shown greyed out until Cheat Engine reports."""
+        try:
+            return {"success": True, **await asyncio.to_thread(trainer_table.read, path)}
+        except (OSError, ValueError) as error:
+            return {"success": False, "error": str(error)}
+
+    @action_log.log_call
+    async def table_session(self, action: str, table: str, app_id: str = ""):
+        """Starts or stops the bridge to Cheat Engine for a running game's table."""
+        try:
+            if action == "start":
+                await asyncio.to_thread(ct_bridge.start, table)
+                process = await asyncio.to_thread(ct_bridge.game_process, app_id)
+                if process:
+                    await asyncio.to_thread(ct_bridge.send, table, {"attach": process})
+                return {"success": True, "process": process}
+            if action == "stop":
+                await asyncio.to_thread(ct_bridge.stop, table)
+                return {"success": True}
+            if action == "attach":
+                process = await asyncio.to_thread(ct_bridge.game_process, app_id)
+                if process:
+                    await asyncio.to_thread(ct_bridge.send, table, {"attach": process})
+                return {"success": True, "process": process}
+            raise ValueError("Unknown table action.")
+        except (OSError, ValueError) as error:
+            return {"success": False, "error": str(error)}
+
+    async def get_table_state(self, table: str):
+        # Polled by the Quick Access panel while a game runs — not logged.
+        try:
+            return {"success": True, "state": await asyncio.to_thread(ct_bridge.state, table)}
+        except (OSError, ValueError) as error:
+            return {"success": False, "error": str(error)}
+
+    @action_log.log_call
+    async def send_table_command(self, table: str, command: dict):
+        try:
+            return {"success": True, "n": await asyncio.to_thread(ct_bridge.send, table, command)}
         except (OSError, ValueError) as error:
             return {"success": False, "error": str(error)}
 

@@ -30,6 +30,17 @@ function translations(messages: Messages) {
     updatedAt: (date: string) => messages.updatedAt.replace("{date}", () => date),
     catalogProgress: (done: number, total: number) =>
       messages.catalogProgress.replace("{done}", () => String(done)).replace("{total}", () => String(total)),
+    tableCount: (count: number) => messages.tableCount.replace("{count}", () => String(count)),
+    viaCheatEngine: (version: string) => messages.viaCheatEngine.replace("{version}", () => version).trim(),
+    ceInstalled: (version: string) => messages.ceInstalled.replace("{version}", () => version).trim(),
+    panelAttached: (process: string) => messages.panelAttached.replace("{process}", () => process),
+    panelEntries: (count: number, active: number) =>
+      messages.panelEntries.replace("{count}", () => String(count)).replace("{active}", () => String(active)),
+    panelAttachHint: (process: string) => messages.panelAttachHint.replace("{process}", () => process),
+    panelNoReply: (seconds: number) => messages.panelNoReply.replace("{seconds}", () => String(seconds)),
+    panelValueHint: (type: string, value: string) =>
+      messages.panelValueHint.replace("{type}", () => type).replace("{value}", () => value),
+    panelOnCount: (count: number) => messages.panelOnCount.replace("{count}", () => String(count)),
   };
 }
 

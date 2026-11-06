@@ -44,3 +44,5 @@ export const CopyIcon = icon(<><rect x="9" y="9" width="11" height="11" rx="2" /
 export const GearIcon = icon(<><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" /></>);
 export const ChevronUpIcon = icon(<path d="M6 15l6-6 6 6" />, 2.4);
 export const WindowIcon = icon(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></>);
+export const TableIcon = icon(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M3 15h18M10 4v16" /></>);
+export const ListIcon = icon(<path d="M8 6h12M8 12h12M8 18h12M4 6h.5M4 12h.5M4 18h.5" />, 2.2);

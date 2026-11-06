@@ -109,16 +109,47 @@ class LibraryTest(LibraryCase):
         self.assertEqual(trainer_library.scan("42")["trainers"], [])
         self.assertEqual(source.read_bytes(), b"program")
 
-    def test_local_file_rejects_tables_and_other_types(self):
-        for name in ("Trainer.CT", "Trainer.zip"):
+    def test_local_file_accepts_programs_and_tables_only(self):
+        source = self.root / "Trainer.zip"
+        source.write_bytes(b"original")
+        with self.assertRaises(ValueError):
+            trainer_library.link_file(str(source), "42", "Example", str(self.library))
+        for name in ("Trainer.EXE", "Table.CT"):
             source = self.root / name
-            source.write_bytes(b"original")
-            with self.assertRaises(ValueError):
-                trainer_library.link_file(str(source), "42", "Example", str(self.library))
-        source = self.root / "Trainer.EXE"
-        source.write_bytes(b"program")
-        trainer_library.link_file(str(source), "42", "Example", str(self.library))
-        self.assertEqual(len(trainer_library.scan("42")["trainers"]), 1)
+            source.write_bytes(b"program")
+            trainer_library.link_file(str(source), "42", "Example", str(self.library))
+        items = trainer_library.scan("42")["trainers"]
+        self.assertEqual(len(items), 2)
+        table = next(item for item in items if item["files"] == ["Table.CT"])
+        self.assertEqual(trainer_library.executable(table["id"], "Table.CT", str(self.library)), str((self.root / "Table.CT").resolve()))
+
+    def test_cheat_engine_is_shared_and_hidden_from_game_rows(self):
+        self.assertFalse(trainer_library.cheat_engine()["installed"])
+        folder = self.library / "Cheat Engine 7.5"
+        (folder / "autorun").mkdir(parents=True)
+        (folder / "Cheat Engine.exe").write_bytes(b"program")
+        trainer_library.write_json(folder / trainer_library.METADATA, {"schema_version": 1, "version": "7.5", "app_ids": []})
+        self.assertEqual(trainer_library.scan("42", "Cheat Engine")["trainers"], [])
+        engine = trainer_library.cheat_engine()
+        self.assertEqual((engine["installed"], engine["version"], engine["path"]), (True, "7.5", str(folder.resolve() / "Cheat Engine.exe")))
+        self.assertFalse(engine["bridge"])
+        self.assertTrue(trainer_library.install_bridge(folder))
+        self.assertTrue(trainer_library.cheat_engine()["bridge"])
+        self.assertEqual((folder / "autorun" / "decky_gcm.lua").read_bytes(), (trainer_library.RESOURCES / "decky_gcm.lua").read_bytes())
+        # A linked installation wins over the library's copy and is only forgotten on removal.
+        linked = self.root / "MyCE"
+        linked.mkdir()
+        (linked / "Cheat Engine.exe").write_bytes(b"program")
+        trainer_library.link_cheat_engine(str(linked))
+        self.assertEqual(trainer_library.cheat_engine()["folder"], str(linked.resolve()))
+        with self.assertRaises(ValueError):
+            trainer_library.link_cheat_engine(str(self.root))
+        trainer_library.remove_cheat_engine()
+        self.assertEqual(trainer_library.cheat_engine()["folder"], str(folder.resolve()))
+        self.assertTrue((linked / "Cheat Engine.exe").is_file())
+        trainer_library.remove_cheat_engine()
+        self.assertFalse(trainer_library.cheat_engine()["installed"])
+        self.assertFalse(folder.exists())
 
     def test_local_file_inside_library_is_not_listed_twice(self):
         folder = self.library / "Example Trainer"

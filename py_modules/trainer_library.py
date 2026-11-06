@@ -9,6 +9,8 @@ import threading
 import unicodedata
 from pathlib import Path
 
+import shutil
+
 import decky
 import trainer_cache
 import library_transactions
@@ -17,9 +19,16 @@ from trainer_cache import TRASH_RECORD, TRASH_MAX_AGE, content_hashes
 
 DEFAULT_DIRECTORY = os.path.join(decky.DECKY_USER_HOME, "DeckyGCM")
 SETTINGS_PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "library.json")
-TRAINER_EXTENSIONS = {".exe", ".bat", ".ct"}
 PROGRAM_EXTENSIONS = {".exe", ".bat"}
+# Tables open through Cheat Engine; the launcher passes them to it.
+TABLE_EXTENSIONS = {".ct", ".cetrainer"}
+TRAINER_EXTENSIONS = PROGRAM_EXTENSIONS | TABLE_EXTENSIONS
 LINKED_ORIGIN = "Linked file"
+CHEAT_ENGINE = "Cheat Engine.exe"
+# The files the plugin adds to a Cheat Engine installation, from its resources.
+RESOURCES = Path(decky.DECKY_PLUGIN_DIR) / "resources"
+BRIDGE_SCRIPT = "decky_gcm.lua"
+LANGUAGE_PACK = "zh_CN"
 _lock = threading.RLock()
 
 
@@ -151,7 +160,13 @@ def _scan(app_id: str = "", game_name: str = "") -> dict:
             "app_ids": metadata.get("app_ids", []),
             "version": metadata.get("version", ""),
             "origin": metadata.get("origin", ""),
+            "author": metadata.get("author", ""),
         }
+        if any(Path(f).name.lower() == CHEAT_ENGINE.lower() for f in entry["files"]):
+            # Cheat Engine is shared by every game and never listed as a trainer.
+            entry["cheat_engine"] = True
+            if app_id:
+                continue
         if not app_id or _matches(entry, app_id, names):
             entries.append(entry)
     shown = [Path(item["path"]) for item in entries]
@@ -165,9 +180,104 @@ def _scan(app_id: str = "", game_name: str = "") -> dict:
         entries.append({
             "id": _link_id(link), "name": path.stem, "path": str(path), "files": [path.name],
             "trainer_id": "", "game_name": link["game_name"], "app_ids": [link["app_id"]],
-            "version": "", "origin": LINKED_ORIGIN, "missing": not path.is_file(),
+            "version": "", "origin": LINKED_ORIGIN, "author": "", "missing": not path.is_file(),
         })
     return {"directory": str(root), "trainers": entries}
+
+
+def _cheat_engine_folder() -> Path | None:
+    """The Cheat Engine folder in use: a linked one first, else the newest in the library."""
+    linked = read_json(SETTINGS_PATH).get("cheat_engine")
+    if isinstance(linked, str) and linked and (Path(linked) / CHEAT_ENGINE).is_file():
+        return Path(linked)
+    found = [Path(item["path"]) for item in _scan()["trainers"] if item.get("cheat_engine")]
+    found = [folder for folder in found if folder.is_dir() and (folder / CHEAT_ENGINE).is_file()]
+    return max(found, key=lambda folder: folder.stat().st_mtime) if found else None
+
+
+def cheat_engine() -> dict:
+    """Where Cheat Engine is and what the plugin added to it."""
+    with _lock:
+        folder = _cheat_engine_folder()
+        if folder is None:
+            return {"installed": False, "path": "", "folder": "", "version": "", "linked": False, "zh_cn": False, "bridge": False}
+        metadata = read_json(folder / METADATA)
+        version = metadata.get("version") if isinstance(metadata.get("version"), str) else ""
+        bridge = folder / "autorun" / BRIDGE_SCRIPT
+        script = RESOURCES / BRIDGE_SCRIPT
+        return {
+            "installed": True, "path": str(folder / CHEAT_ENGINE), "folder": str(folder), "version": version,
+            "linked": str(folder) == read_json(SETTINGS_PATH).get("cheat_engine"),
+            "zh_cn": (folder / "languages" / LANGUAGE_PACK).is_dir(),
+            "bridge": bridge.is_file() and script.is_file() and bridge.read_bytes() == script.read_bytes(),
+        }
+
+
+def _resource(name: str) -> Path:
+    path = RESOURCES / name
+    if not path.exists():
+        raise OSError(f"Plugin resource missing: {name}")
+    return path
+
+
+def install_bridge(folder: str | Path | None = None) -> bool:
+    """Copies the Cheat Engine autorun script the plugin talks to; True when it is in place."""
+    with _lock:
+        target = Path(folder) if folder else _cheat_engine_folder()
+        if target is None or not (target / CHEAT_ENGINE).is_file():
+            return False
+        script = _resource(BRIDGE_SCRIPT)
+        destination = target / "autorun" / BRIDGE_SCRIPT
+        if destination.is_file() and destination.read_bytes() == script.read_bytes():
+            return True
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(".tmp")
+        shutil.copyfile(script, temporary)
+        os.replace(temporary, destination)
+        return True
+
+
+def link_cheat_engine(folder: str) -> None:
+    """Uses an existing Cheat Engine folder where it is."""
+    with _lock:
+        path = Path(os.path.expanduser(folder)).resolve(strict=True)
+        if not (path / CHEAT_ENGINE).is_file():
+            raise ValueError("cheat_engine_missing")
+        write_json(SETTINGS_PATH, {**read_json(SETTINGS_PATH), "cheat_engine": str(path)})
+        install_bridge(path)
+
+
+def remove_cheat_engine() -> None:
+    """Forgets a linked Cheat Engine, or moves the library's copy to the trash."""
+    with _lock:
+        settings = read_json(SETTINGS_PATH)
+        if settings.get("cheat_engine"):
+            write_json(SETTINGS_PATH, {k: v for k, v in settings.items() if k != "cheat_engine"})
+            return
+        for item in _scan()["trainers"]:
+            if item.get("cheat_engine"):
+                delete(item["id"], directory(), "")
+
+
+def set_cheat_engine_language(enabled: bool) -> None:
+    """Adds or removes the Simplified Chinese language pack of Cheat Engine."""
+    with _lock:
+        folder = _cheat_engine_folder()
+        if folder is None:
+            raise ValueError("cheat_engine_missing")
+        target = folder / "languages" / LANGUAGE_PACK
+        if not enabled:
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            return
+        source = _resource(os.path.join("ce-languages", LANGUAGE_PACK))
+        staging = target.with_name(f".{LANGUAGE_PACK}.tmp")
+        if staging.exists():
+            shutil.rmtree(staging)
+        shutil.copytree(source, staging)
+        if target.exists():
+            shutil.rmtree(target)
+        os.replace(staging, target)
 
 
 def _links() -> list[dict]:
@@ -203,14 +313,14 @@ def executable(entry_id: str, filename: str, expected_directory: str) -> str:
             raise ValueError("Unknown trainer file.")
         if item["origin"] == LINKED_ORIGIN:
             target = Path(item["path"]).resolve(strict=True)
-            if not target.is_file() or target.suffix.lower() not in PROGRAM_EXTENSIONS:
-                raise ValueError("Choose an .exe or .bat program. Cheat Tables require Cheat Engine.")
+            if not target.is_file() or target.suffix.lower() not in TRAINER_EXTENSIONS:
+                raise ValueError("Choose an .exe, .bat or .ct file.")
             return str(target)
         base = Path(item["path"])
         target = (base / filename if base.is_dir() else base).resolve(strict=True)
         root = Path(directory()).resolve(strict=True)
-        if not target.is_relative_to(root) or not target.is_file() or target.suffix.lower() not in PROGRAM_EXTENSIONS:
-            raise ValueError("Choose an .exe or .bat program. Cheat Tables require Cheat Engine.")
+        if not target.is_relative_to(root) or not target.is_file() or target.suffix.lower() not in TRAINER_EXTENSIONS:
+            raise ValueError("Choose an .exe, .bat or .ct file.")
         return str(target)
 
 
@@ -220,8 +330,8 @@ def link_file(source: str, app_id: str, game_name: str, expected_directory: str)
         if os.path.realpath(expected_directory) != os.path.realpath(directory()):
             raise ValueError("library_changed")
         path = Path(source).expanduser().resolve(strict=True)
-        if not path.is_file() or path.suffix.lower() not in PROGRAM_EXTENSIONS:
-            raise ValueError("Choose an .exe or .bat program. Cheat Tables require Cheat Engine.")
+        if not path.is_file() or path.suffix.lower() not in TRAINER_EXTENSIONS:
+            raise ValueError("Choose an .exe, .bat or .ct file.")
         links = [item for item in _links() if not (item["app_id"] == app_id and item["path"] == str(path))]
         links.append({"path": str(path), "app_id": app_id, "game_name": game_name})
         _save_links(links)

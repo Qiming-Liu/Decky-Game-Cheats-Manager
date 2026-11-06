@@ -29,6 +29,12 @@ def stage(root: Path, destination: Path):
         "__pycache__", "*.pyc", "secret_config.py", "*.pyd",
     ))
     shutil.copytree(root / "db", destination / "db")
+    if (root / "resources").is_dir():
+        shutil.copytree(root / "resources", destination / "resources", ignore=shutil.ignore_patterns("ce-languages"))
+    # The Cheat Engine language pack ships from the upstream submodule.
+    languages = root / "gcm/src/dependency/CE Translations/zh_CN"
+    if languages.is_dir():
+        shutil.copytree(languages, destination / "resources/ce-languages/zh_CN")
     (destination / "dist").mkdir()
     # Rollup's sole runtime entry point. Never ship maps or development bundles.
     subprocess.run(["node", str(ROOT / "scripts/obfuscate_release.mjs"),

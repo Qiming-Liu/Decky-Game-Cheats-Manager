@@ -175,3 +175,21 @@ test("launcher commands pass programs in order as Windows paths and read back", 
     assert.throws(() => launcherCommand(script, [bad]), /valid/);
   }
 });
+
+test("tables are launched through Cheat Engine, named once before the programs", () => {
+  const { launcherCommand, launcherPrograms, launcherCheatEngine, isTable } = loadDomain();
+  const script = "/home/deck/homebrew/settings/DeckyGCM/launch.bat";
+  const engine = "/home/deck/DeckyGCM/Cheat Engine 7.5 [1]/Cheat Engine.exe";
+  const table = "/home/deck/DeckyGCM/[CT] Elden Ring [2]/EldenRing.CT";
+  assert.equal(isTable(table), true);
+  assert.equal(isTable("/home/deck/Trainer.exe"), false);
+  assert.throws(() => launcherCommand(script, [table]), /cheat_engine_missing/);
+  const command = launcherCommand(script, [table, "/home/deck/Trainer.exe"], engine);
+  assert.ok(command.startsWith(`${script} --ce 'Z:\\home\\deck\\DeckyGCM\\Cheat Engine 7.5 [1]\\Cheat Engine.exe' `), command);
+  assert.deepEqual([...launcherPrograms(command, script)], [table, "/home/deck/Trainer.exe"]);
+  assert.equal(launcherCheatEngine(command, script), engine);
+  // Programs alone never name Cheat Engine, even when it is installed.
+  const plain = launcherCommand(script, ["/home/deck/Trainer.exe"], engine);
+  assert.ok(!plain.includes("--ce"), plain);
+  assert.equal(launcherCheatEngine(plain, script), "");
+});

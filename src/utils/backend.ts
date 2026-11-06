@@ -21,8 +21,9 @@ export interface TrainerResult {
   game_name: string;
   origin: string;
   version: string;
-  /** False for Cheat Tables, which are listed but cannot be downloaded yet. */
-  supported?: boolean;
+  author?: string;
+  /** A Cheat Engine table, opened through Cheat Engine. */
+  table?: boolean;
 }
 
 export interface SearchResponse {
@@ -67,6 +68,7 @@ export interface LocalTrainer {
   app_ids: string[];
   version: string;
   origin: string;
+  author?: string;
   /** Linked local file that no longer exists. */
   missing?: boolean;
 }
@@ -102,13 +104,61 @@ export async function setSettings(changes: Partial<PluginSettings>): Promise<Plu
   return result.settings;
 }
 
-const getLauncherCall = callable<[], { success: boolean; error?: string; path?: string }>("get_launcher");
-/** The shared launcher script, written for the current settings. */
-export async function getLauncher(): Promise<string> {
+const getLauncherCall = callable<[], { success: boolean; error?: string; path?: string; cheat_engine?: string }>("get_launcher");
+/** The shared launcher script, written for the current settings, and the Cheat Engine program if installed. */
+export async function getLauncher(): Promise<{ path: string; cheatEngine: string }> {
   const result = await getLauncherCall();
   if (!result.success || !result.path) throw new Error(result.error || "unknownError");
-  return result.path;
+  return { path: result.path, cheatEngine: result.cheat_engine || "" };
 }
+
+export interface CheatEngineStatus {
+  installed: boolean;
+  /** The Cheat Engine.exe path. */
+  path: string;
+  folder: string;
+  version: string;
+  /** The user's own folder rather than a downloaded copy. */
+  linked: boolean;
+  zh_cn: boolean;
+  /** The plugin's autorun script is in place. */
+  bridge: boolean;
+}
+export const getCheatEngine = callable<[], CheatEngineStatus>("get_cheat_engine");
+const manageCheatEngineCall = callable<[action: string, value: string],
+  { success: boolean; error?: string; job?: DownloadJob; cheat_engine?: CheatEngineStatus }>("manage_cheat_engine");
+export async function manageCheatEngine(action: "download" | "link" | "delete" | "language" | "bridge", value = "") {
+  const result = await manageCheatEngineCall(action, value);
+  if (!result.success) throw new Error(result.error || "unknownError");
+  return result;
+}
+
+export interface TableEntry {
+  id: number;
+  desc: string;
+  group: boolean;
+  active: boolean;
+  /** "script" for Auto Assembler entries, else the value type. */
+  type: string;
+  value?: string;
+  options?: { value: string; label: string }[];
+  error: string;
+  children: TableEntry[];
+}
+export interface TableState {
+  table: string;
+  attached: string;
+  pid: number;
+  last_n: number;
+  entries: TableEntry[];
+  /** Seconds since Cheat Engine last wrote the state. */
+  age: number;
+}
+export const getTable = callable<[path: string], { success: boolean; error?: string; table?: string; entries?: TableEntry[] }>("get_table");
+export const tableSession = callable<[action: "start" | "stop" | "attach", table: string, app_id: string],
+  { success: boolean; error?: string; process?: string }>("table_session");
+export const getTableState = callable<[table: string], { success: boolean; error?: string; state?: TableState | null }>("get_table_state");
+export const sendTableCommand = callable<[table: string, command: Record<string, unknown>], { success: boolean; error?: string; n?: number }>("send_table_command");
 
 export interface LogLine { time: string; level: string; message: string }
 export const getLog = callable<[], { lines: LogLine[] }>("get_log");

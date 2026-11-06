@@ -16,13 +16,23 @@ const unixPath = (path: string) => /^Z:\\/i.test(path) ? path.slice(2).split("\\
 // Batch files expand %, so such paths cannot be passed; quotes end the argument.
 const passable = (path: string) => path.startsWith("/") && !/[\x00-\x1f:%"]/.test(path);
 
+const CHEAT_ENGINE_FLAG = "--ce";
+/** A Cheat Engine table, which the launcher opens through Cheat Engine. */
+export const isTable = (path: string) => /\.(ct|cetrainer)$/i.test(path);
+
 /**
  * The command that starts `programs` in order through the shared launcher
- * script. Proton splits the value into words and runs them with Wine.
+ * script. Proton splits the value into words and runs them with Wine. Tables
+ * need `cheatEngine`, the Cheat Engine program, which the launcher is told first.
  */
-export function launcherCommand(script: string, programs: string[]): string {
+export function launcherCommand(script: string, programs: string[], cheatEngine = ""): string {
   if (!programs.length || !programs.every(passable)) throw new Error("Choose a valid absolute Linux program path without colons.");
-  return [script, ...programs.map(windowsPath)].map(renderWord).join(" ");
+  if (programs.some(isTable)) {
+    if (!cheatEngine) throw new Error("cheat_engine_missing");
+    if (!passable(cheatEngine)) throw new Error("Choose a valid absolute Linux program path without colons.");
+  }
+  const engine = cheatEngine && programs.some(isTable) ? [CHEAT_ENGINE_FLAG, windowsPath(cheatEngine)] : [];
+  return [script, ...engine, ...programs.map(windowsPath)].map(renderWord).join(" ");
 }
 
 /** The programs a command starts: the launcher's arguments, or one program named directly. */
@@ -30,8 +40,19 @@ export function launcherPrograms(command: string | undefined, script: string): s
   if (!command) return [];
   const words = parseRawWords(command)?.map(parseLiteralWord);
   if (!words || words.some(word => word === undefined)) return [command];
-  if (words[0] === script) return (words.slice(1) as string[]).map(unixPath);
+  if (words[0] === script) {
+    const rest = words.slice(1) as string[];
+    return (rest[0] === CHEAT_ENGINE_FLAG ? rest.slice(2) : rest).map(unixPath);
+  }
   return words.length === 1 ? [words[0]!] : [command];
+}
+
+/** The Cheat Engine program a launcher command names, if any. */
+export function launcherCheatEngine(command: string | undefined, script: string): string {
+  if (!command) return "";
+  const words = parseRawWords(command)?.map(parseLiteralWord);
+  if (!words || words.some(word => word === undefined) || words[0] !== script || words[1] !== CHEAT_ENGINE_FLAG) return "";
+  return unixPath(words[2] as string || "");
 }
 
 /**
