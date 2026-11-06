@@ -197,5 +197,18 @@
   "switchesThisGame": "Switches affect this game only",
   "newGlobalOption": "New global launch option",
   "newGameOption": "New game launch option",
-  "colorTeal": "Teal"
+  "colorTeal": "Teal",
+  "tabAbout": "About",
+  "aboutPlugin": "Plugin",
+  "aboutVersion": "Version",
+  "newVersion": "New version {version}",
+  "feedback": "Report a problem",
+  "feedbackHint": "Scan with your phone; version and system are filled in",
+  "feedbackQr": "Feedback QR code",
+  "thanks": "Thanks",
+  "recommended": "Recommended",
+  "creamDeckHint": "DLC unlocker for Proton games · SmokeAPI / CreamAPI",
+  "deckyPlugin": "Decky plugin",
+  "linksOpenInBrowser": "Links open in Steam's browser",
+  "bilibili": "Bilibili"
 }

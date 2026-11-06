@@ -2,6 +2,7 @@ import { Focusable, Navigation, PanelSection, PanelSectionRow, useQuickAccessVis
 import { useEffect, useState } from "react";
 import { cancelDownload, cleanupTrash } from "../utils/backend";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
+import { refreshUpdate } from "../hooks/useUpdate";
 import { errorMessage, useTranslations } from "../utils/i18n";
 import { SETTINGS_ROUTE } from "../utils/routes";
 import { colors, IconButton, jobStateLabel } from "./shell";
@@ -12,7 +13,9 @@ export default function Settings() {
   const t = useTranslations();
   const visible = useQuickAccessVisible();
   useEffect(() => {
-    if (visible) void cleanupTrash().catch(() => {});
+    if (!visible) return;
+    void cleanupTrash().catch(() => {});
+    void refreshUpdate();
   }, [visible]);
   const [message, setMessage] = useState("");
   const [cancelling, setCancelling] = useState(new Set<string>());

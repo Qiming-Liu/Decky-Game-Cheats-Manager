@@ -197,5 +197,18 @@
   "switchesThisGame": "開關只管本遊戲",
   "newGlobalOption": "新增全域啟動項",
   "newGameOption": "新增遊戲啟動項",
-  "colorTeal": "青"
+  "colorTeal": "青",
+  "tabAbout": "關於",
+  "aboutPlugin": "外掛",
+  "aboutVersion": "版本",
+  "newVersion": "新版 {version}",
+  "feedback": "回報問題",
+  "feedbackHint": "手機掃碼，版本和環境已填好",
+  "feedbackQr": "回報 QR 碼",
+  "thanks": "致謝",
+  "recommended": "推薦",
+  "creamDeckHint": "Proton 遊戲 DLC 解鎖 · SmokeAPI / CreamAPI",
+  "deckyPlugin": "Decky 外掛",
+  "linksOpenInBrowser": "連結在 Steam 瀏覽器開啟",
+  "bilibili": "B站"
 }

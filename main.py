@@ -20,6 +20,7 @@ import steam_library  # noqa: E402
 import custom_options  # noqa: E402
 import launcher  # noqa: E402
 import plugin_settings  # noqa: E402
+import about  # noqa: E402
 
 
 class Plugin:
@@ -144,6 +145,13 @@ class Plugin:
             return {"success": True, "path": await asyncio.to_thread(launcher.script)}
         except OSError as error:
             return {"success": False, "error": str(error)}
+
+    async def get_update(self):
+        # Opened with every Quick Access view; GitHub is asked at most weekly.
+        return await asyncio.to_thread(about.update)
+
+    async def get_system_name(self):
+        return await asyncio.to_thread(about.system_name)
 
     async def get_log(self):
         return {"lines": await asyncio.to_thread(action_log.tail)}

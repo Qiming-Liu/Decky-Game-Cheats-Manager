@@ -6,8 +6,11 @@ import { getAppIdFromLocation } from "../utils/routes";
 import Modifiers from "./Modifiers";
 import CommonSettings from "./CommonSettings";
 import CustomOptions from "./CustomOptions";
+import About from "./About";
+import { UpdateDot } from "./update";
+import { useUpdate } from "../hooks/useUpdate";
 import { colors, PageStyle } from "./shell";
-import { AlertCircleIcon, PlayIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { AlertCircleIcon, InfoIcon, PlayIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { isCompatToolUnsupported } from "../domain/compatTool";
 
 /** The name of the compatibility tool Steam runs the game with, e.g. "Proton 9.0". */
@@ -31,6 +34,7 @@ export default function GamePage() {
   const appId = getAppIdFromLocation();
   const compatTool = useCompatTool(appId);
   const unsupported = isCompatToolUnsupported(compatTool);
+  const { latest } = useUpdate();
   // Marks the page's root so the page styles apply here and nowhere else.
   // An attribute, not a class: Steam rewrites the root's class list.
   // Steam renders the sidebar title more than once and attaches it before the
@@ -79,5 +83,9 @@ export default function GamePage() {
     { identifier: "modifiers", title: t.tabModifiers, hideTitle: true, icon: <PlayIcon />, content: <Modifiers appId={appId} gameName={name} unsupportedTool={unsupported ? compatTool : ""} /> },
     { identifier: "common", title: t.tabCommon, hideTitle: true, icon: <SlidersIcon />, content: <CommonSettings appId={appId} /> },
     { identifier: "custom", title: t.tabCustom, hideTitle: true, icon: <TerminalIcon />, content: <CustomOptions appId={appId} /> },
+    {
+      identifier: "about", hideTitle: true, icon: <InfoIcon />, content: <About appId={appId} compatTool={compatTool} />,
+      title: <span style={{ display: "flex", alignItems: "center", gap: 10 }}>{t.tabAbout}{latest && <UpdateDot />}</span>,
+    },
   ]} />;
 }

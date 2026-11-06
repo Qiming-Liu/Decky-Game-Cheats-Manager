@@ -27,6 +27,7 @@ function translations(messages: Messages) {
     pageLabel: (count: number) => messages.pageLabel.replace("{count}", () => String(count)),
     seconds: (count: number) => messages.seconds.replace("{count}", () => String(count)),
     recentLines: (count: number) => messages.recentLines.replace("{count}", () => String(count)),
+    newVersion: (version: string) => messages.newVersion.replace("{version}", () => version),
     updatedAt: (date: string) => messages.updatedAt.replace("{date}", () => date),
     catalogProgress: (done: number, total: number) =>
       messages.catalogProgress.replace("{done}", () => String(done)).replace("{total}", () => String(total)),
