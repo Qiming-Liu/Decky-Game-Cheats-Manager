@@ -32,7 +32,7 @@ const pageCss = (font: string) => `
 [data-gcm-root] { background: linear-gradient(180deg, #0e141b 0%, #151c24 100%) !important; }
 [data-gcm-root] > .PageListColumn { background: rgba(0,0,0,.18) !important; }
 [data-gcm-root] > .DialogContentTransition { background: transparent !important; }
-[data-gcm-root], .gcm-font { font-family: "${font}", "Noto Sans SC", "Motiva Sans", sans-serif !important; }
+[data-gcm-root], .gcm-font { font-family: "${font}", "Motiva Sans", sans-serif !important; }
 [data-gcm-root] .Panel, [data-gcm-root] .DialogContent, [data-gcm-root] .PageListColumn div,
 [data-gcm-root] input, .gcm-font .DialogButton:not([style*="monospace"]), .gcm-font input:not([style*="monospace"]) { font-family: inherit !important; }
 .gcm-ghost.gpfocus { background: #dcdedf !important; color: #0e141b !important; }
