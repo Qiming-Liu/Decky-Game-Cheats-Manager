@@ -10,16 +10,19 @@ import json
 import os
 import tempfile
 import threading
-import uuid
 from pathlib import Path
 
 import decky
 
 _lock = threading.Lock()
+# systemd's machine ID, generated on first boot and readable by every user.
+MACHINE_ID_PATHS = ("/etc/machine-id", "/var/lib/dbus/machine-id")
+# Files earlier releases kept: states tied to a random identity, and that identity.
+LEGACY_FILES = ("credential.json", "state.json", "identity.json")
 
 
 def state_path():
-    return str(Path(decky.DECKY_PLUGIN_SETTINGS_DIR) / "auth" / "state.json")
+    return str(Path(decky.DECKY_PLUGIN_SETTINGS_DIR) / "auth" / "device-state.json")
 
 
 def _write_private(path, value):
@@ -40,17 +43,31 @@ def _write_private(path, value):
             os.unlink(temporary)
 
 
-def install_id():
-    """A stable random identifier for this installation; never derived from hardware."""
-    path = Path(state_path()).with_name("identity.json")
-    with _lock:
+def device_hasher(prefix):
+    """Return a function giving a stable, non-reversible identifier for this device.
+
+    It is derived from the machine ID, so it survives reinstalling the plugin, and is
+    never random. The configuration chooses the prefix through the binding.
+    """
+    def device_hash():
+        for path in MACHINE_ID_PATHS:
+            try:
+                machine_id = Path(path).read_text(encoding="ascii").strip()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if machine_id:
+                return hashlib.sha256(f"{prefix}{machine_id}".encode()).hexdigest()[:32]
+        raise OSError("No machine ID available for this device")
+    return device_hash
+
+
+def _forget_legacy():
+    """Drop state from earlier releases once, so this release registers afresh."""
+    for name in LEGACY_FILES:
         try:
-            identity = json.loads(path.read_text(encoding="utf-8"))["id"]
-            uuid.UUID(identity)
-        except (OSError, ValueError, KeyError, TypeError):
-            identity = uuid.uuid4().hex
-            _write_private(path, {"id": identity})
-    return hashlib.sha256(f"decky-gcm:{identity}".encode()).hexdigest()[:32]
+            os.remove(Path(state_path()).with_name(name))
+        except OSError:
+            pass
 
 
 def save_state(value):
@@ -58,6 +75,8 @@ def save_state(value):
 
 
 def load_state():
+    with _lock:
+        _forget_legacy()
     try:
         path = Path(state_path())
         value = json.loads(path.read_text(encoding="utf-8"))

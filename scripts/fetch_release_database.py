@@ -1,6 +1,7 @@
 """Fetch a complete release catalog; keep CI-only local state out of the package."""
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import sys
@@ -17,6 +18,7 @@ def main():
         sys.modules["decky"] = SimpleNamespace(
             DECKY_PLUGIN_DIR=str(ROOT),
             DECKY_PLUGIN_SETTINGS_DIR=temporary,
+            DECKY_PLUGIN_VERSION=json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"],
             logger=logging.getLogger("gcm-release"),
         )
         import gcm_bridge

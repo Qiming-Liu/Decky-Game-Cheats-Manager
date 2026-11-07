@@ -59,7 +59,10 @@ auth = AuthProxy()
 
 
 def __getattr__(name):
-    if name in {"APP_VERSION", "API_TIMEOUT", "RETRY_STATUSES"}:
+    if name == "APP_VERSION":
+        # Requests identify this plugin's release, not the upstream GCM it builds on.
+        return decky.DECKY_PLUGIN_VERSION
+    if name in {"API_TIMEOUT", "RETRY_STATUSES"}:
         from _gcm_core import config
         return getattr(config, name)
     raise AttributeError(name)

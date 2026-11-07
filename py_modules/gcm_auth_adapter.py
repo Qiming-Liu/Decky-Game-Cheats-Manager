@@ -6,8 +6,9 @@ The rules are generic and know nothing about the configuration's contents:
   are dropped; private values only that code used go with them.
 - Names the remaining code still needs are taken from `gcm_auth_binding`, a Git-ignored
   mapping onto `gcm_auth_platform`, so no private name appears in this repository.
-- The public upstream imports are redirected to the Decky runtime and 'win32' becomes
-  'linux'.
+- The public upstream imports are redirected to the Decky runtime. String constants
+  that exactly equal a key of the binding's optional `LITERALS` mapping are replaced
+  by its value; without one, 'win32' becomes 'steamos'.
 
 Only the interface upstream GCM's config.py declares is checked: `signed_get` and the
 endpoint constants. Nothing here describes, tests or depends on the service protocol.
@@ -28,7 +29,13 @@ BINDING_MODULE = "gcm_auth_binding"
 PREAMBLE = "import gcm_transport as requests\nfrom gcm_runtime import quiet as print\n"
 
 
+DEFAULT_LITERALS = {"win32": "steamos"}
+
+
 class Adapt(ast.NodeTransformer):
+    def __init__(self, literals=None):
+        self.literals = DEFAULT_LITERALS if literals is None else literals
+
     def visit_Import(self, node):
         node.names = [alias for alias in node.names if alias.name != "requests"]
         return node if node.names else None
@@ -39,7 +46,10 @@ class Adapt(ast.NodeTransformer):
         return node
 
     def visit_Constant(self, node):
-        return ast.copy_location(ast.Constant(value="linux"), node) if node.value == "win32" else node
+        # Exact matches only: a path or message that merely contains the text is kept.
+        if isinstance(node.value, str) and node.value in self.literals:
+            return ast.copy_location(ast.Constant(value=self.literals[node.value]), node)
+        return node
 
 
 def _defined(node):
@@ -68,14 +78,28 @@ def _imports_windows(node):
     return isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] in WINDOWS_MODULES
 
 
-def _binding():
+def _binding_module():
     try:
-        module = importlib.import_module(BINDING_MODULE)
+        return importlib.import_module(BINDING_MODULE)
     except ModuleNotFoundError as error:
         if error.name != BINDING_MODULE:
             raise
-        return {}
-    return dict(module.BINDING)
+        return None
+
+
+def _binding():
+    module = _binding_module()
+    return dict(module.BINDING) if module else {}
+
+
+def _literals():
+    module = _binding_module()
+    literals = getattr(module, "LITERALS", None) if module else None
+    if literals is None:
+        return dict(DEFAULT_LITERALS)
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in dict(literals).items()):
+        raise ValueError("Platform binding literals must map strings to strings")
+    return dict(literals)
 
 
 def _select(body, bound):
@@ -132,7 +156,8 @@ def render(source: str) -> str:
         raise ValueError("Unsupported GCM data-source configuration interface")
     # Binding values are gcm_auth_platform attributes, optionally called ("state_path()").
     platform = ("import gcm_auth_platform\n" + "".join(f"{name} = gcm_auth_platform.{binding[name]}\n" for name in needed)) if needed else ""
-    body = [node for node in (Adapt().visit(node) for node in kept) if node is not None]
+    adapt = Adapt(_literals())
+    body = [node for node in (adapt.visit(node) for node in kept) if node is not None]
     result = PREAMBLE + platform + ast.unparse(ast.fix_missing_locations(ast.Module(body=body, type_ignores=[]))) + "\n"
     validate(result, "<GCM data source>")
     return result

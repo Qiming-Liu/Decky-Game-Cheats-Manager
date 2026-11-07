@@ -17,6 +17,8 @@ from gcm_bridge import DATABASE_PATH
 import gcm_bridge
 
 MAX_AGE = 7 * 24 * 60 * 60
+# The data service asks clients not to check a file more than once an hour.
+MIN_INTERVAL = 60 * 60
 STATE_FILE = "checked_at.json"
 
 
@@ -102,16 +104,21 @@ def status() -> dict:
 
 
 def refresh(force=True) -> dict:
-    """Conditionally download files; automatic checks skip files younger than seven days."""
+    """Conditionally download files.
+
+    Automatic checks skip files younger than seven days; manual ones skip files
+    checked within the last hour.
+    """
     checks = _checks(DATABASE_PATH)
     now = time.time()
-    if not force and all(Path(DATABASE_PATH, name).is_file() and now - checks.get(name, 0) < MAX_AGE
-                         for name in DATABASE_FILES):
+    age = MIN_INTERVAL if force else MAX_AGE
+    names = [name for name in DATABASE_FILES
+             if not Path(DATABASE_PATH, name).is_file() or now - checks.get(name, 0) >= age]
+    if not names:
         return {"success": True, "errors": {}, "skipped": True}
     errors = {}
-    for name, s3_path in DATABASE_FILES.items():
-        if not force and Path(DATABASE_PATH, name).is_file() and now - checks.get(name, 0) < MAX_AGE:
-            continue
+    for name in names:
+        s3_path = DATABASE_FILES[name]
         try:
             url = data_source.get_signed_download_url(s3_path)
             http_download.download(url, DATABASE_PATH, filename=name)

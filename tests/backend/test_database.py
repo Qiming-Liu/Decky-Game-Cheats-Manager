@@ -45,6 +45,15 @@ class DatabaseTest(unittest.TestCase):
         trainer_db.refresh()
         self.assertEqual(self.downloader.call_count, 6)
 
+    def test_manual_refresh_checks_each_file_at_most_once_an_hour(self):
+        self.catalog(self.local, 2_000_000 - trainer_db.MIN_INTERVAL + 1)
+        self.assertTrue(trainer_db.refresh()["skipped"])
+        self.signer.assert_not_called()
+        first = next(iter(trainer_db.DATABASE_FILES))
+        (self.local / first).unlink()
+        trainer_db.refresh()
+        self.assertEqual(self.downloader.call_count, 1)  # A missing file is still fetched.
+
     def test_seven_day_check_including_unchanged_files_resets_age(self):
         self.catalog(self.local, 2_000_000 - trainer_db.MAX_AGE)
         self.assertTrue(trainer_db.refresh(force=False)["success"])
