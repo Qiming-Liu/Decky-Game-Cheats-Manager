@@ -43,6 +43,11 @@ class AuthTest(unittest.TestCase):
             patcher = patch(target, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        self.machine_id = self.root / "machine-id"
+        self.machine_id.write_text("0123456789abcdef0123456789abcdef\n", encoding="ascii")
+        patcher = patch("gcm_auth_platform.MACHINE_ID_PATHS", (str(self.root / "missing"), str(self.machine_id)))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         data_source.reset()
         self.addCleanup(data_source.reset)
         self.auth = data_source.client()
@@ -67,7 +72,8 @@ class AuthTest(unittest.TestCase):
         with patch.object(gcm_transport, "get", get):
             self.auth.signed_get("https://example.invalid/download", {"filePath": "GCM/Data/translations.json"}, (1, 1))
         self.assertEqual(len(get.call_args_list[0].kwargs["params"]["install"]), 32)
-        self.assertEqual(gcm_auth_platform.install_id(), gcm_auth_platform.install_id())
+        device = gcm_auth_platform.device_hasher("fixture:")
+        self.assertEqual(device(), device())
         self.assertEqual(gcm_auth_platform.load_state(), {"ticket": "fixture-ticket"})
         another = gcm_auth_adapter.load(str(FIXTURE))
         with patch.object(gcm_transport, "get", return_value=response()) as get_again:
@@ -80,6 +86,51 @@ class AuthTest(unittest.TestCase):
         gcm_auth_platform.clear_state()
         gcm_auth_platform.clear_state()  # Idempotent.
         self.assertFalse(Path(gcm_auth_platform.state_path()).exists())
+
+    def test_device_id_follows_the_machine_and_is_never_random(self):
+        device = gcm_auth_platform.device_hasher("fixture:")
+        first = device()
+        self.assertRegex(first, r"^[0-9a-f]{32}$")
+        self.assertNotIn("0123456789abcdef", first)  # The raw machine ID is not exposed.
+        settings = self.root / "auth"
+        if settings.exists():
+            import shutil
+            shutil.rmtree(settings)  # A reinstall loses plugin state, not the device.
+        self.assertEqual(device(), first)
+        self.assertNotEqual(gcm_auth_platform.device_hasher("other:")(), first)
+        self.machine_id.write_text("fedcba9876543210fedcba9876543210" + chr(10), encoding="ascii")
+        self.assertNotEqual(device(), first)
+        self.machine_id.write_text(chr(10), encoding="ascii")
+        with self.assertRaises(OSError):
+            device()
+
+    def test_state_from_earlier_releases_is_discarded(self):
+        directory = Path(gcm_auth_platform.state_path()).parent
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in gcm_auth_platform.LEGACY_FILES:
+            (directory / name).write_text('{"ticket": "old"}', encoding="utf-8")
+        self.assertIsNone(gcm_auth_platform.load_state())
+        for name in gcm_auth_platform.LEGACY_FILES:
+            self.assertFalse((directory / name).exists())
+
+    def test_requests_report_the_plugin_version(self):
+        import decky
+        import gcm_runtime
+        self.assertEqual(gcm_runtime.APP_VERSION, decky.DECKY_PLUGIN_VERSION)
+
+    def test_binding_literals_replace_exact_constants_only(self):
+        source = ("CLIENT_API_KEY = 'x'\nSIGNED_URL_DOWNLOAD_ENDPOINT = 'y'\nNAME = 'alpha'\nPATH = 'alpha/data'\n"
+                  "def signed_get(url, params, timeout):\n    return (NAME, PATH, 'win32')\n")
+        with patch.object(gcm_auth_adapter, "_literals", return_value={"alpha": "beta"}):
+            rendered = gcm_auth_adapter.render(source)
+        self.assertIn("NAME = 'beta'", rendered)
+        self.assertIn("PATH = 'alpha/data'", rendered)
+        self.assertIn("'win32'", rendered)  # A binding with literals replaces the default.
+        with patch.object(gcm_auth_adapter, "_binding_module", return_value=None):
+            self.assertIn("'steamos'", gcm_auth_adapter.render(source))
+        with patch.object(gcm_auth_adapter, "_binding_module", return_value=Mock(BINDING={}, LITERALS={"alpha": 1})):
+            with self.assertRaises(ValueError):
+                gcm_auth_adapter.render(source)
 
     def test_connection_failure_has_safe_structured_error(self):
         import requests
