@@ -126,6 +126,10 @@ export async function getLauncher(): Promise<Launcher> {
   return { path: result.path, legacy: result.legacy ?? [], home: result.home ?? "" };
 }
 
+/** Records in the log how the game's trainers started, once the starter has followed them. */
+export const checkTrainerLaunch = callable<[app_id: string, programs: string[], compat_tool: string], { success: boolean; error?: string }>(
+  "check_trainer_launch");
+
 export interface LogLine { time: string; level: string; message: string }
 /** The newest log entries, oldest first. */
 export const getLog = callable<[limit?: number], LogLine[]>("get_log");

@@ -31,8 +31,10 @@ import trainer_library
 
 NAME = ".gcm.bat"
 STARTER_NAME = ".gcm-start.exe"
+# What the script and the starter did, read and emptied by launch_check.
+LOG_NAME = ".gcm-launch.log"
 # Files the launcher owns in a folder; library migration leaves them behind.
-FILES = (NAME, STARTER_NAME)
+FILES = (NAME, STARTER_NAME, LOG_NAME)
 LEGACY_PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "launch.bat")
 LEGACY_STARTER_NAME = "gcm-start.exe"
 STARTER = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "gcm-start.exe")
@@ -40,9 +42,12 @@ _lock = threading.Lock()
 
 
 def _render(settings: dict) -> str:
+    # Each step is appended to the launch log, which the plugin copies into its own.
+    def log(text: str) -> str:
+        return f'echo %date% %time% launcher: {text}>>"%~dp0{LOG_NAME}"'
     lines = ["@echo off", "rem Written by DeckyGCM. Starts the programs named after it, in order.",
              "rem A program without a drive letter is relative to this folder.",
-             f'set "GCM_START=%~dp0{STARTER_NAME}"']
+             f'set "GCM_START=%~dp0{STARTER_NAME}"', log("started")]
     delay = settings["launch_delay"]
     if delay:
         # `timeout` returns at once without a console; ping waits about one second per echo.
@@ -52,10 +57,13 @@ def _render(settings: dict) -> str:
               'if not "%GCM_PROGRAM:~1,1%"==":" set "GCM_PROGRAM=%~dp0%~1"',
               'for %%i in ("%GCM_PROGRAM%") do set "GCM_FOLDER=%%~dpi"',
               'for %%i in ("%GCM_PROGRAM%") do set "GCM_TYPE=%%~xi"',
+              'if not exist "%GCM_PROGRAM%" ' + log('missing "%GCM_PROGRAM%"'),
               'if /i not "%GCM_TYPE%"==".exe" goto plain',
+              'if not exist "%GCM_START%" ' + log("no starter"),
               'if not exist "%GCM_START%" goto plain',
               '"%GCM_START%" "%GCM_PROGRAM%" && goto started',
-              ":plain", 'start "" /d "%GCM_FOLDER%" "%GCM_PROGRAM%"', ":started"]
+              ":plain", log('start "%GCM_PROGRAM%"'),
+              'start "" /d "%GCM_FOLDER%" "%GCM_PROGRAM%"', ":started"]
     if not settings["allow_multiple"]:
         lines.append("goto :eof")
     lines += ["shift", "goto next"]

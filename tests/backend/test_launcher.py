@@ -57,8 +57,9 @@ class LauncherTest(unittest.TestCase):
     def test_exe_programs_use_the_starter_beside_the_script(self):
         text = self.read()
         self.assertIn('set "GCM_START=%~dp0.gcm-start.exe"', text)
-        self.assertIn('if /i not "%GCM_TYPE%"==".exe" goto plain\r\nif not exist "%GCM_START%" goto plain\r\n'
-                      '"%GCM_START%" "%GCM_PROGRAM%" && goto started\r\n:plain\r\n', text)
+        self.assertIn('if not exist "%GCM_START%" goto plain\r\n"%GCM_START%" "%GCM_PROGRAM%" && goto started\r\n', text)
+        # Every step is appended to the launch log beside the script.
+        self.assertIn('echo %date% %time% launcher: started>>"%~dp0.gcm-launch.log"\r\n', text)
         copies = (self.root / ".gcm-start.exe", self.library / ".gcm-start.exe")
         self.assertFalse(any(copy.exists() for copy in copies))
         # Earlier versions' copy is removed.

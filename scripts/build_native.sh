@@ -6,5 +6,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p bin
 "${CC:-x86_64-w64-mingw32-gcc}" -O2 -s -Wall -Wextra -Werror -static-libgcc \
-  -o bin/gcm-start.exe native/gcm_start.c -lshell32
+  -o bin/gcm-start.exe native/gcm_start.c -lshell32 -luser32
 echo "Built bin/gcm-start.exe"

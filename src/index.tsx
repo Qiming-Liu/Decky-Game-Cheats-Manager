@@ -3,6 +3,7 @@ import { definePlugin } from "@decky/ui";
 import { PiHandTapFill as PluginIcon } from "react-icons/pi";
 
 import installGameMenu from "./patch";
+import watchTrainerLaunches from "./launchCheck";
 import { logFrontend } from "./utils/backend";
 import { initLanguage, PLUGIN_NAME } from "./utils/i18n";
 import { GAME_PAGE_ROUTE, SETTINGS_ROUTE } from "./utils/routes";
@@ -32,6 +33,7 @@ function Icon() {
 export default definePlugin(() => {
   initLanguage();
   const removeGameMenu = installGameMenu();
+  const stopLaunchCheck = watchTrainerLaunches();
   void refreshUpdate();
 
   try {
@@ -51,6 +53,7 @@ export default definePlugin(() => {
       routerHook.removeRoute(GAME_PAGE_ROUTE);
       routerHook.removeRoute(SETTINGS_ROUTE);
       removeGameMenu();
+      stopLaunchCheck();
     },
   };
 });

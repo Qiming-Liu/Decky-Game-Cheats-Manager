@@ -21,6 +21,8 @@ export interface LaunchDetails {
   options: string;
   /** The program a non-Steam shortcut starts; empty for Steam games. */
   command: string;
+  /** Steam's name for the game's compatibility tool; empty when it has none. */
+  compatTool: string;
 }
 
 export async function readLaunchOptions(appId: string): Promise<string> {
@@ -40,7 +42,7 @@ export function readLaunchDetails(appId: string): Promise<LaunchDetails> {
         const value = shortcut ? details?.strShortcutLaunchOptions : details?.strLaunchOptions;
         if (settled || value === undefined) return;
         settled = true; window.clearTimeout(timer); subscription?.unregister();
-        resolve({ options: value, command: shortcut ? details?.strShortcutExe || "" : "" });
+        resolve({ options: value, command: shortcut ? details?.strShortcutExe || "" : "", compatTool: details?.strCompatToolDisplayName || "" });
       });
       if (settled) subscription.unregister();
     } catch (error) {

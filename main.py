@@ -22,6 +22,7 @@ import trainer_library  # noqa: E402
 import steam_library  # noqa: E402
 import custom_options  # noqa: E402
 import launcher  # noqa: E402
+import launch_check  # noqa: E402
 import plugin_settings  # noqa: E402
 import about  # noqa: E402
 import plugin_log  # noqa: E402
@@ -44,6 +45,7 @@ LOG = plugin_log.PluginLog(decky.DECKY_PLUGIN_LOG_DIR, "deckygcm")
 def _stop_background_work() -> bool:
     deadline = time.monotonic() + UNLOAD_WAIT
     trainer_db.stop()
+    launch_check.stop()
     stopped = trainer_download.close(UNLOAD_WAIT)
     stopped = trainer_db.wait_idle(max(0.0, deadline - time.monotonic())) and stopped
     if not stopped:
@@ -220,6 +222,14 @@ class Plugin:
             return {"success": True, **await asyncio.to_thread(launcher.script), "home": decky.DECKY_USER_HOME}
         except OSError as error:
             return {"success": False, "error": str(error)}
+
+    async def check_trainer_launch(self, app_id: str, programs: list, compat_tool: str = ""):
+        # Runs in the background and only writes to the log.
+        try:
+            launch_check.watch(app_id, programs, compat_tool)
+        except ValueError as error:
+            return {"success": False, "error": str(error)}
+        return {"success": True}
 
     async def get_update(self):
         # Opened with every Quick Access view; GitHub is asked at most weekly.
