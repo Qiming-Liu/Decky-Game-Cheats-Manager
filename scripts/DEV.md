@@ -40,7 +40,8 @@ after pip succeeds. Failed installs are discarded and retried cleanly on the nex
 build. Edits made during the initial build, upload, or sudo prompt are picked up
 when the watcher starts.
 
-Local edits are debounced for one second, rebuilt and synchronized automatically.
+Frontend edits are debounced for three seconds and Python, dependency or plugin
+metadata edits for five seconds, then rebuilt and synchronized automatically.
 Deleted source files are removed from the mirror. Unchanged files retain their
 timestamps. Decky's recursive watcher does not follow the development symlinks,
 so after applying an upload the session touches the `main.py` symlink itself

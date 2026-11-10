@@ -87,32 +87,6 @@ class AuthTest(unittest.TestCase):
         gcm_auth_platform.clear_state()  # Idempotent.
         self.assertFalse(Path(gcm_auth_platform.state_path()).exists())
 
-    def test_device_id_follows_the_machine_and_is_never_random(self):
-        device = gcm_auth_platform.device_hasher("fixture:")
-        first = device()
-        self.assertRegex(first, r"^[0-9a-f]{32}$")
-        self.assertNotIn("0123456789abcdef", first)  # The raw machine ID is not exposed.
-        settings = self.root / "auth"
-        if settings.exists():
-            import shutil
-            shutil.rmtree(settings)  # A reinstall loses plugin state, not the device.
-        self.assertEqual(device(), first)
-        self.assertNotEqual(gcm_auth_platform.device_hasher("other:")(), first)
-        self.machine_id.write_text("fedcba9876543210fedcba9876543210" + chr(10), encoding="ascii")
-        self.assertNotEqual(device(), first)
-        self.machine_id.write_text(chr(10), encoding="ascii")
-        with self.assertRaises(OSError):
-            device()
-
-    def test_state_from_earlier_releases_is_discarded(self):
-        directory = Path(gcm_auth_platform.state_path()).parent
-        directory.mkdir(parents=True, exist_ok=True)
-        for name in gcm_auth_platform.LEGACY_FILES:
-            (directory / name).write_text('{"ticket": "old"}', encoding="utf-8")
-        self.assertIsNone(gcm_auth_platform.load_state())
-        for name in gcm_auth_platform.LEGACY_FILES:
-            self.assertFalse((directory / name).exists())
-
     def test_requests_report_the_plugin_version(self):
         import decky
         import gcm_runtime

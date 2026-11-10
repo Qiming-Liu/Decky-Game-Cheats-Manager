@@ -15,7 +15,7 @@ function loadMenu(ui) {
     require(name) {
       if (name === "@decky/ui") return ui;
       if (name === "react/jsx-runtime") return { jsx: () => ({}) };
-      return { menuItemLabel: () => "GCM", gamePageRoute: (id) => `/gcm/${id}` };
+      return { menuItemLabel: () => "GCM", gamePageRoute: (id) => `/gcm/${id}`, logFrontend: () => {} };
     },
   });
   return module.exports.default;

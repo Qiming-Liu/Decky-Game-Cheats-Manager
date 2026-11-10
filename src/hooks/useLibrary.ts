@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getLibrary, LibraryResponse } from "../utils/backend";
+import { getLibrary, LibraryResponse, logFrontend } from "../utils/backend";
 
 const listeners = new Set<() => void>();
 export const invalidateLibrary = () => listeners.forEach((listener) => listener());
@@ -17,7 +17,8 @@ export function useLibrary(appId: string, name: string) {
       if (request !== sequence.current) return;
       setLibrary(response);
       setError(response.success ? null : response.error || "library_unavailable");
-    } catch {
+    } catch (error) {
+      logFrontend("error", `Loading the trainer library of app ${appId} failed`, error);
       if (request === sequence.current) {
         setLibrary(null);
         setError("library_unavailable");

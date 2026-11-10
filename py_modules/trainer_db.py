@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import tempfile
 from pathlib import Path
 
 import data_source
 import http_download
+import library_storage
 from gcm_bridge import DATABASE_PATH
 import gcm_bridge
 
@@ -88,6 +90,10 @@ def load(file_name: str):
         return None
 
 
+# Files finished out of those the running refresh downloads, for the settings page.
+PROGRESS = {"done": 0, "total": 0}
+
+
 def status() -> dict:
     files = {}
     checks = _checks(DATABASE_PATH)
@@ -103,12 +109,55 @@ def status() -> dict:
     }
 
 
+# Set once the plugin stops; a refresh then ends at its next file or progress update.
+_STOP = threading.Event()
+_IDLE = threading.Condition()
+_running = 0
+
+
+class RefreshStopped(Exception):
+    pass
+
+
+def _check_stop(*_progress):
+    if _STOP.is_set():
+        raise RefreshStopped("plugin_stopping")
+
+
+def stop():
+    _STOP.set()
+
+
+def wait_idle(timeout: float) -> bool:
+    """Wait up to `timeout` seconds for running refreshes; True when none is left."""
+    with _IDLE:
+        return _IDLE.wait_for(lambda: not _running, timeout)
+
+
+def cleanup_staging(before: float):
+    """Remove refresh staging left behind when a stopped plugin was killed
+    (only directories last changed before `before`)."""
+    library_storage.remove_stale_directories(DATABASE_PATH, http_download.DATABASE_STAGING_PREFIX, before)
+
+
 def refresh(force=True) -> dict:
     """Conditionally download files.
 
     Automatic checks skip files younger than seven days; manual ones skip files
     checked within the last hour.
     """
+    global _running
+    with _IDLE:
+        _running += 1
+    try:
+        return _refresh(force)
+    finally:
+        with _IDLE:
+            _running -= 1
+            _IDLE.notify_all()
+
+
+def _refresh(force):
     checks = _checks(DATABASE_PATH)
     now = time.time()
     age = MIN_INTERVAL if force else MAX_AGE
@@ -117,13 +166,19 @@ def refresh(force=True) -> dict:
     if not names:
         return {"success": True, "errors": {}, "skipped": True}
     errors = {}
-    for name in names:
+    for index, name in enumerate(names):
+        if _STOP.is_set():
+            errors[name] = "plugin_stopping"
+            break
         s3_path = DATABASE_FILES[name]
+        PROGRESS.update(done=index, total=len(names))
         try:
             url = data_source.get_signed_download_url(s3_path)
-            http_download.download(url, DATABASE_PATH, filename=name)
+            _check_stop()
+            http_download.download(url, DATABASE_PATH, _check_stop, filename=name)
             checks[name] = time.time()
             _write_json(Path(DATABASE_PATH) / STATE_FILE, checks)
         except Exception as e:  # noqa: BLE001 - reported per file, others still attempted
             errors[name] = str(e)
+    PROGRESS.update(done=len(names), total=len(names))
     return {"success": not errors, "errors": errors, "finished_at": time.time()}

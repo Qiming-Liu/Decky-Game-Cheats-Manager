@@ -11,13 +11,15 @@ import time
 import uuid
 from pathlib import Path
 
-import action_log
 import data_source
+import decky
 import http_download
+import library_storage
 import trainer_archive
 import trainer_library
 
 ACTIVE_STATES = {"queued", "downloading", "extracting"}
+STAGING_PREFIX = ".gcm-download-"
 
 
 class DownloadCancelled(Exception):
@@ -38,6 +40,8 @@ class DownloadManager:
         self._tasks: set[asyncio.Task] = set()
         self._cancel: dict[str, threading.Event] = {}
         self._lock = threading.RLock()
+        self._idle = threading.Condition(self._lock)
+        self._workers = 0
         self._lifecycle = asyncio.Lock()
         self._closing = False
         self._slots = None
@@ -54,17 +58,29 @@ class DownloadManager:
         with self._lock:
             self._closing = False
 
-    async def shutdown(self):
-        async with self._lifecycle:
-            await asyncio.to_thread(self._stop)
-        # Cancelling to_thread alone does not stop its worker. Wait for cleanup.
-        await self.wait_idle()
+    def close(self, timeout: float) -> bool:
+        """Refuse new jobs, cancel running ones and wait up to `timeout` seconds
+        for their worker threads. Returns whether every worker stopped.
 
-    def _stop(self):
+        It blocks instead of awaiting: while Decky stops the plugin, the event
+        loop no longer runs other callbacks (see `Plugin._unload`). Workers clean
+        their staging directories themselves and never publish after cancellation.
+        """
         with self._lock:
             self._closing = True
             for token in self._cancel.values():
                 token.set()
+            return self._idle.wait_for(lambda: not self._workers, timeout)
+
+    def _work(self, job, trainer, token):
+        with self._lock:
+            self._workers += 1
+        try:
+            self._install(job, trainer, token)
+        finally:
+            with self._lock:
+                self._workers -= 1
+                self._idle.notify_all()
 
     def jobs(self):
         with self._lock:
@@ -150,7 +166,7 @@ class DownloadManager:
             return
         root = Path(job["directory"])
         root.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix=".gcm-download-", dir=root) as temporary:
+        with tempfile.TemporaryDirectory(prefix=STAGING_PREFIX, dir=root) as temporary:
             staging = Path(temporary)
             with self._lock:
                 job["state"] = "downloading"
@@ -179,7 +195,7 @@ class DownloadManager:
     async def _run(self, job, trainer, token):
         try:
             async with self._slots:
-                worker = asyncio.create_task(asyncio.to_thread(self._install, job, trainer, token))
+                worker = asyncio.create_task(asyncio.to_thread(self._work, job, trainer, token))
                 try:
                     await asyncio.shield(worker)
                 except asyncio.CancelledError:
@@ -194,14 +210,14 @@ class DownloadManager:
                 if job["state"] != "done":
                     job.update(state="cancelled" if token.is_set() else "error", error=None if token.is_set() else str(error))
                 else:
-                    action_log.log_warning(f"installed; temporary cleanup failed: {error}")
+                    decky.logger.warning("Installed; temporary cleanup failed: %s", error)
         finally:
             with self._lock:
                 self._cancel.pop(job["id"], None)
             if job["state"] == "done":
-                action_log.log_event(f"installed {job['trainer_name']} -> {job['path']}")
+                decky.logger.info('Download of trainer "%s" finished: %s', job["trainer_name"], job["path"])
             elif job["state"] == "error":
-                action_log.log_warning(f"download failed: {job['error']}")
+                decky.logger.warning('Download of trainer "%s" failed: %s', job["trainer_name"], job["error"])
 
 
 manager = DownloadManager()
@@ -211,8 +227,17 @@ def resume():
     manager.resume()
 
 
-async def shutdown():
-    await manager.shutdown()
+def close(timeout):
+    return manager.close(timeout)
+
+
+def cleanup_staging(before: float):
+    """Remove download staging left behind when a stopped plugin was killed.
+
+    Only directories last changed before `before` (this process's start) are
+    removed, so a download started meanwhile keeps its own staging.
+    """
+    library_storage.remove_stale_directories(trainer_library.directory(), STAGING_PREFIX, before)
 
 
 async def start(trainer, download_dir=None, app_id="", expected_directory=""):

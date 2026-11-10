@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 import threading
 from pathlib import Path
 from unittest.mock import patch
 
 import main
+import trainer_db
 import trainer_download
 import trainer_library
 
@@ -67,6 +69,17 @@ class DownloadsTest(LibraryCase):
         self.assertEqual(local[0]["trainer_id"], "example")
         self.assertEqual(trainer_library.scan("999", "Elden Ring")["trainers"], [])
 
+    def test_download_path_matches_the_scanned_entry_behind_a_symlink(self):
+        linked = self.root / "home-link"
+        try:
+            linked.symlink_to(self.library, target_is_directory=True)
+        except OSError:
+            self.skipTest("symlinks unavailable")
+        trainer_library.write_json(trainer_library.SETTINGS_PATH, {"directory": str(linked)})
+        job = self._install()
+        self.assertEqual(job["state"], "done", job["error"])
+        self.assertEqual(job["path"], trainer_library.scan("1245620", "Elden Ring")["trainers"][0]["path"])
+
     def test_direct_ct_download_is_added_without_extraction(self):
         job = self._install("game.CT", b"<CheatTable/>")
         self.assertEqual(job["state"], "done", job["error"])
@@ -104,24 +117,20 @@ class DownloadsTest(LibraryCase):
                 for i in range(3):
                     await trainer_download.start({"id": str(i), "trainer_name": "Trainer", "url": "test"}, app_id="42")
                 self.assertTrue(await asyncio.to_thread(entered.wait, 2))
-                stopping = asyncio.create_task(trainer_download.shutdown())
-                # shutdown must refuse new work before waiting for existing workers.
-                for _ in range(100):
-                    try:
-                        await trainer_download.start({"id": "0", "trainer_name": "Trainer", "url": "test"}, app_id="42")
-                    except ValueError as error:
-                        self.assertEqual(str(error), "plugin_stopping")
-                        break
-                    await asyncio.sleep(.01)
-                else:
-                    self.fail("Shutdown did not stop accepting downloads.")
+                # Workers are still blocked, so a short close reports them as running.
+                self.assertFalse(trainer_download.close(0.05))
+                with self.assertRaisesRegex(ValueError, "plugin_stopping"):
+                    await trainer_download.start({"id": "new", "trainer_name": "Trainer", "url": "test"}, app_id="42")
             finally:
                 release.set()
-                await trainer_download.shutdown()
-            await stopping
+                self.assertTrue(trainer_download.close(3))
+                await trainer_download.manager.wait_idle()
 
-        with patch("trainer_download.data_source.get_signed_download_url", return_value="https://example.test"), patch("trainer_download.http_download.download", side_effect=download):
-            asyncio.run(run())
+        try:
+            with patch("trainer_download.data_source.get_signed_download_url", return_value="https://example.test"), patch("trainer_download.http_download.download", side_effect=download):
+                asyncio.run(run())
+        finally:
+            trainer_download.resume()
         self.assertEqual(maximum, 2)
         self.assertEqual(calls, 2)
         self.assertTrue(all(job["state"] == "cancelled" for job in trainer_download.jobs()))
@@ -156,7 +165,7 @@ class DownloadsTest(LibraryCase):
         self.assertEqual(job["state"], "done")
         self.assertEqual(len(trainer_library.scan()["trainers"]), 1)
 
-    def test_shutdown_waits_for_worker_and_prevents_publication(self):
+    def test_unload_waits_for_worker_without_the_event_loop_and_prevents_publication(self):
         started, release = threading.Event(), threading.Event()
         def download(url, directory, progress):
             started.set()
@@ -169,11 +178,12 @@ class DownloadsTest(LibraryCase):
         async def run():
             job = await trainer_download.start({"id": "stop", "trainer_name": "Stop", "url": "test"})
             self.assertTrue(await asyncio.to_thread(started.wait, 2))
-            stopping = asyncio.create_task(trainer_download.shutdown())
-            await asyncio.sleep(0)
-            self.assertFalse(stopping.done())
-            release.set()
-            await stopping
+            threading.Timer(0.2, release.set).start()
+            # Decky's event loop runs nothing else during _unload, so it must not suspend.
+            unloading = main.Plugin()._unload()
+            with self.assertRaises(StopIteration):
+                unloading.send(None)
+            await trainer_download.manager.wait_idle()
             return next(item for item in trainer_download.jobs() if item["id"] == job["id"])
         try:
             with patch("trainer_download.data_source.get_signed_download_url", return_value="https://example.test"), patch("trainer_download.http_download.download", side_effect=download):
@@ -183,6 +193,27 @@ class DownloadsTest(LibraryCase):
         finally:
             release.set()
             trainer_download.resume()
+            trainer_db._STOP.clear()
+
+    def test_sigterm_stops_downloads_and_exits_without_the_event_loop(self):
+        try:
+            with patch("main.os._exit") as exit_process, patch("main.logging.shutdown"):
+                main._terminate(None, None)
+            exit_process.assert_called_once_with(0)
+            with self.assertRaisesRegex(ValueError, "plugin_stopping"):
+                asyncio.run(trainer_download.start({"id": "late", "trainer_name": "Late", "url": "test"}))
+        finally:
+            trainer_download.resume()
+            trainer_db._STOP.clear()
+
+    def test_staging_left_by_a_killed_plugin_is_removed_but_new_staging_is_kept(self):
+        old, new, other = (self.library / ".gcm-download-old"), (self.library / ".gcm-download-new"), (self.library / "Kept")
+        for folder in (old, new, other):
+            folder.mkdir()
+        os.utime(old, (1_000, 1_000))
+        os.utime(other, (1_000, 1_000))
+        trainer_download.cleanup_staging(before=2_000)
+        self.assertEqual(sorted(p.name for p in self.library.iterdir()), [".gcm-download-new", "Kept"])
 
     def test_search_in_second_panel_keeps_first_panel_downloadable(self):
         plugin = main.Plugin()

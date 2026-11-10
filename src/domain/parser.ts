@@ -13,7 +13,6 @@ type ParseDiagnosticCode =
   | "unsupported-comment"
   | "unsupported-dollar-quote"
   | "unsupported-newline"
-  | "missing-command-marker"
   | "multiple-command-markers"
   | "empty-prefix-command";
 
@@ -269,14 +268,14 @@ export const parseLaunchOptions = (source: string): ParsedLaunchOptions => {
   }
 
   const markers = words.filter((word) => word.raw === "%command%");
-  if (markers.length !== 1) {
-    diagnostics.push({
-      code: markers.length === 0 ? "missing-command-marker" : "multiple-command-markers",
-      span: markers.length === 0 ? span(0, source.length) : markers[1].span,
-    });
-  }
-  if (diagnostics.length > 0 || markers.length !== 1) {
+  if (markers.length > 1) diagnostics.push({ code: "multiple-command-markers", span: markers[1].span });
+  if (diagnostics.length > 0) {
     return { source, assignments: [], prefixes: [], implicitMarker: false, arguments: [], diagnostics };
+  }
+  // Steam appends launch options without %command% to the game's own
+  // arguments, so they are read as "%command% <words>".
+  if (markers.length === 0) {
+    return { source, assignments: [], prefixes: [], implicitMarker: true, arguments: words, diagnostics };
   }
 
   const marker = markers[0];

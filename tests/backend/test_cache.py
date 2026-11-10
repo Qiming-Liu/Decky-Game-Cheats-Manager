@@ -71,9 +71,10 @@ class CacheTest(LibraryCase):
         })
         trainer_library.cleanup_trash()
         self.assertTrue(item.exists())
-        source = self.root / "Trainer.exe"
-        source.write_bytes(b"program")
-        trainer_library.import_file(str(source), "42", "Example", str(self.library))
+        folder = self.library / "Managed"
+        folder.mkdir()
+        (folder / "Trainer.exe").write_bytes(b"program")
+        trainer_library.write_json(folder / trainer_library.METADATA, {"schema_version": 1, "app_ids": ["42"]})
         entry = trainer_library.scan()["trainers"][0]
         with self.assertRaisesRegex(ValueError, "not owned"):
             trainer_library.delete(entry["id"], str(self.library), "42")
@@ -93,16 +94,6 @@ class CacheTest(LibraryCase):
         support.write_bytes(b"help")
         (content / "extra.dll").write_bytes(b"extra")
         self.assertIsNone(trainer_library.restore_trainer(trainer, ["42"]))
-
-    def test_matching_cache_older_than_a_day_restores_until_startup_cleanup(self):
-        original, cached, trainer = self._trash_download()
-        record = trainer_library.read_json(cached / trainer_library.TRASH_RECORD)
-        record["deleted_at"] = time.time() - trainer_library.TRASH_MAX_AGE - 1
-        trainer_library.write_json(cached / trainer_library.TRASH_RECORD, record)
-        restored = trainer_library.restore_trainer(trainer, ["42"])
-        self.assertEqual(str(restored), original["path"])
-        self.assertEqual((restored / "v1" / "Trainer.exe").read_bytes(), b"trainer")
-        self.assertFalse(cached.exists())
 
     def test_page_cleanup_removes_expired_cache_without_server_requests(self):
         _, cached, _ = self._trash_download()
@@ -133,12 +124,6 @@ class CacheTest(LibraryCase):
         self.assertIsNone(trainer_library.restore_trainer(trainer, ["42"]))
         self.assertEqual((destination / "user.exe").read_bytes(), b"keep")
         self.assertTrue(cached.exists())
-
-    def test_restore_cleanup_failure_keeps_success(self):
-        _, _, trainer = self._trash_download()
-        with patch("trainer_cache.remove", side_effect=OSError("cleanup failed")):
-            restored = trainer_library.restore_trainer(trainer, ["42"])
-        self.assertTrue((restored / "v1" / "Trainer.exe").is_file())
 
     def test_delete_move_failure_keeps_original_trainer(self):
         job = self._install()

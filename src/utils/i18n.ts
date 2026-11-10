@@ -53,11 +53,11 @@ export const menuItemLabel = () => PLUGIN_NAME;
 const errorKeys: Record<string, keyof Translations> = {
   library_unavailable: "libraryUnavailable", library_changed: "libraryChanged",
   library_conflict: "libraryConflict", library_nested: "libraryNested",
-  invalid_app_id: "invalidAppId", unknown_trainer: "trainerMissing",
+  invalid_app_id: "invalidAppId", invalid_program_path: "invalidProgramPath", unknown_trainer: "trainerMissing",
   plugin_stopping: "stopping", keyword_too_short: "keywordTooShort", database_missing: "databaseMissing",
   "Trainer no longer exists. Refresh the library.": "trainerMissing",
   "Unknown trainer file.": "unknownFile",
-  "Choose an .exe or .bat program. Cheat Tables require Cheat Engine.": "executableRequired",
+  "Choose an .exe or .bat program. Cheat Tables are not supported yet.": "executableRequired",
   "Choose an .exe, .bat or .CT file.": "selectFile",
   "Choose an .exe file.": "selectFile",
   "This trainer is shared with another game and cannot be deleted here.": "sharedTrainer",
@@ -77,6 +77,7 @@ const errorKeys: Record<string, keyof Translations> = {
   "GCM request rate limited": "rateLimited",
   "GCM server rate limit reached": "rateLimited",
   "GCM authentication is waiting before retrying": "connectionFailed",
+  unsupported_launcher: "unsupportedLauncher",
   unconfigured: "dataSourceMissing", invalid_config: "dataSourceInvalid", auth_failed: "authenticationFailed",
   connection_failed: "connectionFailed", rate_limited: "rateLimited", server_error: "serverError",
   "Invalid trainer database format": "invalidDatabase",
@@ -88,10 +89,15 @@ const errorKeys: Record<string, keyof Translations> = {
   "Trainer archive has no file content.": "invalidArchive",
 };
 
-export function errorMessage(error: unknown, t: Translations = translations()): string {
+/** The translation key of a backend error, when it is a known one. */
+export function errorKey(error: unknown): keyof Translations | undefined {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  const key = (Object.prototype.hasOwnProperty.call(en, message) ? message as keyof Translations : undefined)
+  return (Object.prototype.hasOwnProperty.call(en, message) ? message as keyof Translations : undefined)
     || errorKeys[message] || (Object.keys(en) as (keyof Translations)[]).find(key => en[key] === message);
+}
+
+export function errorMessage(error: unknown, t: Translations = translations()): string {
+  const key = errorKey(error);
   const value = key && t[key];
   return typeof value === "string" ? value : t.unknownError;
 }
