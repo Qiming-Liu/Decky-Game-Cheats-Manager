@@ -1,3 +1,4 @@
+import type { CustomOption } from "../domain/custom";
 import { callable } from "@decky/api";
 
 export interface DatabaseStatus {
@@ -20,6 +21,8 @@ export interface TrainerResult {
   game_name: string;
   origin: string;
   version: string;
+  /** False for Cheat Tables, which are listed but cannot be downloaded yet. */
+  supported?: boolean;
 }
 
 export interface SearchResponse {
@@ -42,6 +45,8 @@ export interface DownloadJob {
   total: number;
   path: string | null;
   error: string | null;
+  /** Seconds since the epoch. */
+  started_at: number;
 }
 
 export const getDatabaseStatus = callable<[], DatabaseStatus>("get_database_status");
@@ -64,11 +69,17 @@ export interface LocalTrainer {
   app_ids: string[];
   version: string;
   origin: string;
+  /** Linked local file that no longer exists. */
+  missing?: boolean;
 }
+
+export const LINKED_ORIGIN = "Linked file";
 
 export interface LibraryResponse {
   success: boolean;
   directory?: string;
+  /** `directory` with symbolic links resolved, as trainer paths are. */
+  real_directory?: string;
   game_name?: string;
   trainers?: LocalTrainer[];
   error?: string;
@@ -77,7 +88,81 @@ export interface LibraryResponse {
 export const getLibrary = callable<[app_id: string, game_name: string], LibraryResponse>("get_library");
 export const setLibraryDirectory = callable<[path: string], LibraryResponse>("set_library_directory");
 
-export const getLibrarySettings = callable<[], { directory: string; database: DatabaseStatus }>("get_library_settings");
+export interface DatabaseState extends DatabaseStatus {
+  updating?: boolean;
+  progress?: { done: number; total: number };
+  /** The first error of the last finished refresh. */
+  error?: string;
+}
+export const getLibrarySettings = callable<[], { directory: string; database: DatabaseState }>("get_library_settings");
+
+export interface PluginSettings { allow_multiple: boolean; auto_select: boolean; launch_delay: number; skip_launcher_check: boolean }
+export const LAUNCH_DELAYS = [0, 5, 10, 15, 30, 60] as const;
+export const getSettings = callable<[], PluginSettings>("get_settings");
+const setSettingsCall = callable<[changes: Partial<PluginSettings>], { success: boolean; error?: string; settings?: PluginSettings }>("set_settings");
+export async function setSettings(changes: Partial<PluginSettings>): Promise<PluginSettings> {
+  const result = await setSettingsCall(changes);
+  if (!result.success || !result.settings) throw new Error(result.error || "unknownError");
+  return result.settings;
+}
+
+const resetSettingsCall = callable<[], { success: boolean; error?: string; settings?: PluginSettings; options?: CustomOption[] }>("reset_settings");
+/** Plugin settings and saved custom options back to their defaults. */
+export async function resetSettings(): Promise<{ settings: PluginSettings; options: CustomOption[] }> {
+  const result = await resetSettingsCall();
+  if (!result.success || !result.settings || !result.options) throw new Error(result.error || "unknownError");
+  return { settings: result.settings, options: result.options };
+}
+
+export interface Launcher { path: string; legacy: string[]; home: string }
+const getLauncherCall = callable<[], { success: boolean; error?: string } & Partial<Launcher>>("get_launcher");
+/**
+ * The launcher script, written for the current settings, the earlier script
+ * paths older launch options may still name, and the user's home directory.
+ */
+export async function getLauncher(): Promise<Launcher> {
+  const result = await getLauncherCall();
+  if (!result.success || !result.path) throw new Error(result.error || "unknownError");
+  return { path: result.path, legacy: result.legacy ?? [], home: result.home ?? "" };
+}
+
+export interface LogLine { time: string; level: string; message: string }
+/** The newest log entries, oldest first. */
+export const getLog = callable<[limit?: number], LogLine[]>("get_log");
+export const clearLog = callable<[], void>("clear_log");
+/** Writes the whole log to ~/Downloads and returns its path, with ~ for the home directory. */
+/** Writes the whole log into `directory` and resolves to the file, with ~ for home. */
+export const exportLog = callable<[directory: string], string>("export_log");
+/** Where the export folder picker opens: ~/Downloads, or home without it. */
+export const getLogExportDirectory = callable<[], string>("get_log_export_directory");
+const logFrontendCall = callable<[level: string, message: string], void>("log_frontend");
+
+/**
+ * Records a failure the user saw in the plugin log, as `context: detail`.
+ * Never throws: logging must not turn into another error.
+ */
+export function logFrontend(level: "error" | "warning" | "info", context: string, reason?: unknown): void {
+  try {
+    const detail = reason === undefined ? "" : reason instanceof Error ? reason.message : String(reason);
+    void logFrontendCall(level, detail ? `${context}: ${detail}` : context).catch(() => {});
+  } catch { /* The backend may be gone while the plugin unloads. */ }
+}
+
+/**
+ * Records a user action the frontend carried out itself (such as writing launch
+ * options) as one `[user] action: done` or `[user] action: failed: reason` line.
+ * Never throws.
+ */
+export function logUserAction(action: string, error?: unknown): void {
+  try {
+    if (error === undefined) {
+      void logFrontendCall("info", `[user] ${action}: done`).catch(() => {});
+      return;
+    }
+    const reason = (error instanceof Error ? error.message : String(error)) || "unknown error";
+    void logFrontendCall("warning", `[user] ${action}: failed: ${reason}`).catch(() => {});
+  } catch { /* The backend may be gone while the plugin unloads. */ }
+}
 const manageTrainer = callable<[
   action: string, app_id: string, expected_directory: string, entry_id: string,
   filename: string, source: string, game_name: string,
@@ -93,8 +178,11 @@ async function runTrainerAction(action: "import" | "delete" | "executable" | "ca
   return result;
 }
 
-export async function importTrainer(context: LibraryContext & { source: string; gameName: string }): Promise<void> {
-  await runTrainerAction("import", context, "", "", context.source, context.gameName);
+/** Uses a local program in place and returns its resolved path. */
+export async function linkTrainer(context: LibraryContext & { source: string; gameName: string }): Promise<string> {
+  const result = await runTrainerAction("import", context, "", "", context.source, context.gameName);
+  if (!result.path) throw new Error("unknownFile");
+  return result.path;
 }
 
 export async function deleteTrainer(context: EntryContext): Promise<void> {
@@ -111,4 +199,22 @@ export async function cancelDownload(context: { appId: string; jobId: string }):
   const result = await runTrainerAction("cancel", { appId: context.appId, directory: "" }, context.jobId);
   if (!result.job) throw new Error("unknownDownload");
   return result.job;
+}
+
+/** The installed version and, when GitHub has a newer release, its version ("" otherwise). */
+export interface UpdateInfo { current: string; latest: string }
+export const getUpdate = callable<[], UpdateInfo>("get_update");
+export const getSystemName = callable<[], string>("get_system_name");
+
+type SavedOption = CustomOption;
+
+/** The saved options, the user's home directory and which preset launcher files exist. */
+export const getCustomOptions = callable<[], { options: SavedOption[]; home: string; installed: Record<string, boolean> }>("get_custom_options");
+const saveCustomOptionsCall = callable<[options: SavedOption[]], { success: boolean; error?: string; options?: SavedOption[] }>(
+  "save_custom_options",
+);
+export async function saveCustomOptions(options: SavedOption[]): Promise<SavedOption[]> {
+  const result = await saveCustomOptionsCall(options);
+  if (!result.success || !result.options) throw new Error(result.error || "unknownError");
+  return result.options;
 }

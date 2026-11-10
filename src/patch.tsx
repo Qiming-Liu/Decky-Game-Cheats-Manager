@@ -15,6 +15,7 @@ import {
 } from "@decky/ui";
 import type { FC } from "react";
 
+import { logFrontend } from "./utils/backend";
 import { menuItemLabel } from "./utils/i18n";
 import { gamePageRoute } from "./utils/routes";
 
@@ -113,9 +114,11 @@ export default function installGameMenu(): () => void {
   try {
     const module = findModuleByExport((e: Export) => e?.toString?.().includes("().LibraryContextMenu"));
     const factory = Object.values(module || {}).find((sibling) => sibling?.toString().includes("navigator:"));
-    if (!factory) return cleanup;
-    const LibraryContextMenu = fakeRenderComponent(factory as FC)?.type;
-    if (!LibraryContextMenu?.prototype?.render) return cleanup;
+    const LibraryContextMenu = factory && fakeRenderComponent(factory as FC)?.type;
+    if (!LibraryContextMenu?.prototype?.render) {
+      logFrontend("warning", "Library context menu not found; the game menu entry is unavailable");
+      return cleanup;
+    }
     patches.push(afterPatch(LibraryContextMenu.prototype, "render", (_: any, component: any) => {
       const overviewId = component?._owner?.pendingProps?.overview?.appid;
       const found = findInTree(component?.props?.children, (x) => x?.app?.appid, { walkable: ["props", "children"] });
@@ -142,7 +145,8 @@ export default function installGameMenu(): () => void {
       update(component?.props?.children, appid);
       return component;
     }));
-  } catch {
+  } catch (error) {
+    logFrontend("error", "Library context menu patch failed", error);
     cleanup();
   }
   return cleanup;

@@ -22,6 +22,21 @@ def write_json(path: str | Path, data: dict) -> None:
             os.unlink(temporary)
 
 
+def remove_stale_directories(parent: str | Path, prefix: str, before: float) -> None:
+    """Remove `prefix*` directories in `parent` last changed before `before`."""
+    try:
+        entries = list(os.scandir(parent))
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            if (entry.name.startswith(prefix) and entry.is_dir(follow_symlinks=False)
+                    and entry.stat(follow_symlinks=False).st_mtime < before):
+                shutil.rmtree(entry.path, ignore_errors=True)
+        except OSError:
+            continue
+
+
 def read_json(path: str | Path) -> dict:
     try:
         value = json.loads(Path(path).read_text(encoding="utf-8"))

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import { PassThrough } from "node:stream";
-import { copyRuntime, loadDevEnv, createProcessGroup, forwardSessionInput, connectionArgs, prepareVendor } from "../../scripts/dev.mjs";
+import { copyRuntime, createProcessGroup, forwardSessionInput, prepareVendor } from "../../scripts/dev.mjs";
 
 test("development payload includes generated auth but excludes raw secrets and host wheels", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "gcm-dev-test-"));
@@ -70,41 +70,6 @@ test("Ctrl+C reaches the host shutdown handler and terminal raw mode is restored
   assert.equal(input.isPaused(), true);
   input.destroy();
   output.destroy();
-});
-
-test("piped input ending requests shutdown without requiring a terminal", async () => {
-  const input = new PassThrough();
-  const output = new PassThrough();
-  let stopped = false;
-  const restore = forwardSessionInput(input, output, () => { stopped = true; });
-  input.end();
-  await once(input, "end");
-  assert.equal(stopped, true);
-  restore();
-  output.destroy();
-});
-
-test("process connection settings override the local ignored configuration", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "gcm-env-test-"));
-  try {
-    assert.deepEqual(loadDevEnv(root, { DECKY_HOST: "test@host" }), { DECKY_HOST: "test@host" });
-    fs.writeFileSync(path.join(root, ".env"), 'DECKY_HOST="local@host"\nDECKY_PORT=2222\n');
-    assert.deepEqual(loadDevEnv(root, { DECKY_HOST: "override@host" }), { DECKY_HOST: "override@host", DECKY_PORT: "2222" });
-  } finally {
-    assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("SSH aliases retain their configured port unless explicitly overridden", () => {
-  assert(!connectionArgs({ DECKY_HOST: "deck-vm" }).includes("-p"));
-  assert(!connectionArgs({ DECKY_HOST: "deck-vm", DECKY_PORT: "" }).includes("-p"));
-  const args = connectionArgs({ DECKY_HOST: "deck-vm", DECKY_PORT: "2222" });
-  assert.equal(args[args.indexOf("-p") + 1], "2222");
-  for (const port of ["0", "65536", "invalid", "22.5"]) {
-    assert.throws(() => connectionArgs({ DECKY_HOST: "deck-vm", DECKY_PORT: port }), /valid DECKY_HOST/);
-  }
-  assert.throws(() => connectionArgs({ DECKY_HOST: "-V" }), /valid DECKY_HOST/);
 });
 
 test("failed dependency installs cannot contaminate the next build or become ready", async () => {

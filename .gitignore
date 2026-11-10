@@ -2,6 +2,7 @@ node_modules/
 dist/
 out/
 package/
+bin/
 *.log
 __pycache__/
 *.pyc
@@ -24,5 +25,5 @@ tests/private/
 .env.*
 !.env.example
 
-# Local AI agent notes (shared across Decky plugins)
+# Local notes shared across Decky plugins
 AGENTS.md

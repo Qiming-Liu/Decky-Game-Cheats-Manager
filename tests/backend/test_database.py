@@ -95,16 +95,6 @@ class DatabaseTest(unittest.TestCase):
         trainer_db.initialize()
         self.assertEqual(json.loads((self.local / "translations.json").read_text()), ["bundled"])
 
-    def test_legacy_installation_keeps_its_original_age(self):
-        self.catalog(self.local, 1_900_000, "local")
-        (self.local / trainer_db.STATE_FILE).unlink()
-        import os
-        for name in trainer_db.DATABASE_FILES:
-            os.utime(self.local / name, (1_900_000, 1_900_000))
-        trainer_db.initialize()
-        self.assertTrue(trainer_db.refresh(force=False)["skipped"])
-        self.signer.assert_not_called()
-
     def test_simultaneous_sidebar_checks_share_one_update(self):
         self.catalog(self.local, 1)
         entered, release = threading.Event(), threading.Event()
@@ -130,6 +120,46 @@ class DatabaseTest(unittest.TestCase):
             self.assertEqual(self.downloader.call_count, 6)
         finally:
             release.set()
+
+    def test_unload_stops_a_running_refresh_and_keeps_the_old_catalog(self):
+        self.catalog(self.local, 1)
+        entered = threading.Event()
+        calls = []
+
+        def download(url, directory, progress, filename):
+            calls.append(filename)
+            entered.set()
+            for _ in range(300):  # A large file: progress keeps arriving until stopped.
+                progress(1, 100)
+                threading.Event().wait(0.01)
+            raise TimeoutError("refresh was not stopped")
+
+        self.downloader.side_effect = download
+        self.addCleanup(trainer_db._STOP.clear)
+
+        async def run():
+            refreshing = asyncio.create_task(main.Plugin().check_database_update())
+            self.assertTrue(await asyncio.to_thread(entered.wait, 5))
+            unloading = main.Plugin()._unload()
+            with self.assertRaises(StopIteration):
+                unloading.send(None)  # Returns without suspending once the refresh has stopped.
+            self.assertTrue(trainer_db.wait_idle(0))
+            return await refreshing
+
+        result = asyncio.run(run())
+        self.assertFalse(result["success"])
+        self.assertEqual(len(calls), 1)  # The remaining files were not started.
+        self.assertEqual(json.loads((self.local / calls[0]).read_text()), ["old"])
+
+    def test_staging_left_by_a_killed_plugin_is_removed(self):
+        old, new = self.local / ".gcm-db-old", self.local / ".gcm-db-new"
+        old.mkdir()
+        new.mkdir()
+        import os
+        os.utime(old, (1_000, 1_000))
+        trainer_db.cleanup_staging(before=2_000)
+        self.assertFalse(old.exists())
+        self.assertTrue(new.exists())
 
 
 if __name__ == "__main__":

@@ -29,6 +29,8 @@ def stage(root: Path, destination: Path):
         "__pycache__", "*.pyc", "secret_config.py", "*.pyd",
     ))
     shutil.copytree(root / "db", destination / "db")
+    (destination / "bin").mkdir()
+    shutil.copy2(root / "bin/gcm-start.exe", destination / "bin/gcm-start.exe")
     (destination / "dist").mkdir()
     # Rollup's sole runtime entry point. Never ship maps or development bundles.
     subprocess.run(["node", str(ROOT / "scripts/obfuscate_release.mjs"),
@@ -46,6 +48,8 @@ def package(output: Path):
         raise RuntimeError("Generate the authenticated GCM core before packaging")
     if not (ROOT / "py_modules/_vendor/requests/__init__.py").is_file():
         raise RuntimeError("Vendor Linux Python dependencies before packaging")
+    if not (ROOT / "bin/gcm-start.exe").is_file():
+        raise RuntimeError("Build the trainer starter (scripts/build_native.sh) before packaging")
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="gcm-release-") as temporary:

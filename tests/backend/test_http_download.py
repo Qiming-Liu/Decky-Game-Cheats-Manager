@@ -16,11 +16,16 @@ class DownloadTest(unittest.TestCase):
                 pass
 
             def do_GET(self):
-                payload = b'[{"game_name": "Example"}]' if self.path == "/db.json" else b"not json"
+                if self.path == "/large.bin":
+                    cls.large_requests += 1
+                    payload = b"x" * (2 * 1024 * 1024)
+                else:
+                    payload = b'[{"game_name": "Example"}]' if self.path == "/db.json" else b"not json"
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
+        cls.large_requests = 0
         cls.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -40,6 +45,19 @@ class DownloadTest(unittest.TestCase):
                 http_download.download(self.origin + "/invalid.json", directory, filename="database.json")
             self.assertEqual(Path(path).read_bytes(), previous)
             self.assertEqual(sorted(p.name for p in Path(directory).iterdir()), ["database.json"])
+
+    def test_cancelling_progress_stops_without_retrying_the_download(self):
+        class Cancelled(Exception):
+            pass
+
+        def progress(done, total):
+            if done:
+                raise Cancelled()
+
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(Cancelled):
+                http_download.download(self.origin + "/large.bin", directory, progress)
+            self.assertEqual(type(self).large_requests, 1)
 
 
 if __name__ == "__main__":

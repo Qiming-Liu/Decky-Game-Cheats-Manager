@@ -1,0 +1,74 @@
+name: Bug report
+description: Something in DeckyGCM does not work as expected.
+labels: [bug]
+body:
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Existing issues
+      options:
+        - label: I searched the existing issues and this bug is not reported yet.
+          required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: A clear description of the problem, including any error message shown.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the game's DeckyGCM page
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game name and AppID
+      placeholder: Example Game (AppID 123456)
+    validations:
+      required: true
+  - type: input
+    id: trainer
+    attributes:
+      label: Trainer name and source
+      description: The trainer's name and where it came from (for example a search result's source, or a linked local file).
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Shown in the Quick Access panel title and on the About page.
+    validations:
+      required: true
+  - type: input
+    id: steamos-version
+    attributes:
+      label: SteamOS version
+      placeholder: SteamOS 3.7.x, Bazzite, ...
+    validations:
+      required: true
+  - type: input
+    id: proton
+    attributes:
+      label: Proton version
+      placeholder: Proton 9.0, Proton Experimental, GE-Proton, ...
+  - type: textarea
+    id: log
+    attributes:
+      label: Plugin log
+      description: >-
+        Open Advanced settings, press Export next to the log and attach the file it
+        writes to ~/Downloads (drag it into this field). The log hides your home
+        folder and secrets, but read it before attaching.
+    validations:
+      required: true

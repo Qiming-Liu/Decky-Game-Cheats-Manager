@@ -1,11 +1,42 @@
 import { useTranslations, errorMessage, initLanguage, getSearchLanguage } from "../utils/i18n";
-import { DialogButton, Focusable, Spinner, TextField } from "@decky/ui";
+import { Focusable, Spinner, TextField } from "@decky/ui";
 import { useEffect, useRef, useState } from "react";
-import { downloadTrainer, getDatabaseStatus, searchTrainers, TrainerResult } from "../utils/backend";
+import {
+  cancelDownload, DatabaseStatus, DownloadJob, downloadTrainer, getDatabaseStatus, logFrontend, searchTrainers, TrainerResult,
+} from "../utils/backend";
 import { useLibrary, invalidateLibrary } from "../hooks/useLibrary";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
-import TrainerRow, { actionButtonStyle, TrainerName } from "./TrainerRow";
-import { activeVersion, installedVersion } from "../domain/trainer";
+import { activeVersion, installedVersion, originLabel } from "../domain/trainer";
+import { Button, colors, jobStateLabel, Progress, Row, Status } from "./shell";
+import { CheckIcon, InfoIcon } from "./icons";
+
+/** The newest database file's date as MM-DD, or "" when nothing was downloaded. */
+function databaseDate(status?: DatabaseStatus) {
+  const newest = Math.max(0, ...Object.values(status?.files || {}).filter((value): value is number => typeof value === "number" && Number.isFinite(value)));
+  if (!newest) return "";
+  const date = new Date(newest * 1000);
+  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+const normalize = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+/**
+ * Downloadable results first; within each, results whose game name matches
+ * the searched or Steam name exactly, then by prefix, then by substring.
+ * Ties keep the database's order.
+ */
+export function rankResults(results: readonly TrainerResult[], names: readonly (string | undefined)[]): TrainerResult[] {
+  const targets = names.map(name => normalize(name || "")).filter(Boolean);
+  const closeness = (name: string) => !name ? 3 : Math.min(3, ...targets.map(target => name === target ? 0
+    : name.startsWith(target) || target.startsWith(name) ? 1 : name.includes(target) || target.includes(name) ? 2 : 3));
+  // The database names games in English; the trainer name holds the
+  // localized title in 《》, which is what a localized search matches.
+  const match = (result: TrainerResult) => Math.min(
+    closeness(normalize(result.game_name)), closeness(normalize(/《(.+?)》/.exec(result.trainer_name)?.[1] || "")));
+  const score = (result: TrainerResult) => (result.supported === false ? 4 : 0) + match(result);
+  return results.map((result, index) => ({ result, index, score: score(result) }))
+    .sort((a, b) => a.score - b.score || a.index - b.index).map(item => item.result);
+}
 
 export default function TrainerSearch({ appId, initialKeyword }: { appId: string; initialKeyword: string }) {
   const t = useTranslations();
@@ -15,23 +46,32 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
   const [results, setResults] = useState<TrainerResult[]>([]);
   const [message, setMessage] = useState("");
   const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [starting, setStarting] = useState(new Set<string>());
+  const [database, setDatabase] = useState<DatabaseStatus>();
   const sequence = useRef(0);
+  const list = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
   async function search(query: string, cachedOnly = false) {
     if (!query.trim()) return;
     const request = ++sequence.current;
     setSearching(true); setMessage(""); setResults([]);
     try {
-      if (cachedOnly && !(await getDatabaseStatus()).ready) return;
+      const status = await getDatabaseStatus().catch(() => undefined);
+      if (request === sequence.current) setDatabase(status);
+      if (cachedOnly && !status?.ready) return;
       if (request !== sequence.current) return;
       await initLanguage();
       if (request !== sequence.current) return;
       const response = await searchTrainers(query, getSearchLanguage());
       if (request !== sequence.current) return;
+      setSearched(true);
       if (!response.success) setMessage(response.error || "searchFailed");
-      else { setResults(response.results); if (!response.results.length) setMessage("noResults"); }
-    } catch { if (request === sequence.current) setMessage("searchFailed"); }
+      else { setResults(rankResults(response.results, [query, library?.game_name])); if (!response.results.length) setMessage("noResults"); }
+    } catch (error) {
+      logFrontend("error", "Trainer search failed", error);
+      if (request === sequence.current) setMessage("searchFailed");
+    }
     finally { if (request === sequence.current) setSearching(false); }
   }
   useEffect(() => {
@@ -43,6 +83,20 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
     }
   }, [initialKeyword, library?.game_name]);
   useEffect(() => () => { sequence.current++; }, []);
+  // New results take the focus, so the first one is a press away.
+  useEffect(() => {
+    if (results.length) list.current?.querySelector<HTMLElement>(".DialogButton:not(.Disabled)")?.focus();
+  }, [results]);
+  const [cancelling, setCancelling] = useState(new Set<string>());
+  async function cancel(job: DownloadJob) {
+    const jobId = job.id;
+    setCancelling(previous => new Set(previous).add(jobId));
+    try { trackDownload(await cancelDownload({ appId: job.app_ids.includes(appId) ? appId : job.app_ids[0] || appId, jobId })); }
+    catch (error) {
+      setMessage(error instanceof Error ? error.message : "unknownError");
+      setCancelling(previous => { const next = new Set(previous); next.delete(jobId); return next; });
+    }
+  }
   async function download(trainer: TrainerResult) {
     setStarting(previous => new Set(previous).add(trainer.id));
     try {
@@ -56,32 +110,44 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
     finally { setStarting(previous => { const next = new Set(previous); next.delete(trainer.id); return next; }); }
   }
   return <Focusable flow-children="column">
-    <TrainerRow><div style={{ flex: "1 1 0", minWidth: 0 }}>
-      <TextField aria-label={t.gameName} placeholder={t.gameName} value={keyword}
-        onChange={event => { initialized.current = true; setKeyword(event.target.value); }} />
-    </div><DialogButton style={actionButtonStyle} disabled={searching || !keyword.trim()} onClick={() => { void search(keyword); }}>
-      {searching ? t.searching : t.search}</DialogButton></TrainerRow>
+    <Focusable flow-children="row" style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
+      <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+        <TextField aria-label={t.gameName} placeholder={t.gameName} value={keyword}
+          onChange={event => { initialized.current = true; setKeyword(event.target.value); }} />
+      </div>
+      <Button primary style={{ height: 44, padding: "0 22px", fontSize: 15, fontWeight: 500 }} disabled={searching || !keyword.trim()} onClick={() => { void search(keyword); }}>
+        {searching ? t.searching : t.search}</Button>
+    </Focusable>
     {searching && <Spinner style={{ height: 32 }} />}
-    {(message || error) && <div role="status">{errorMessage(message || error, t)}</div>}
-    {results.map(trainer => {
+    <Status message={message || error ? errorMessage(message || error, t) : undefined} tone={message === "noResults" ? "warning" : undefined} />
+    {searched && results.length > 0 && <div style={{ fontSize: 12, color: colors.muted, padding: "0 4px 16px" }}>
+      {t.foundCount(results.length)}{databaseDate(database) && ` · ${t.databaseDate(databaseDate(database))}`}</div>}
+    <div ref={list}>{results.map(trainer => {
       const installed = installedVersion(trainer, library?.trainers || []);
       const otherVersion = library?.trainers?.some(item => item.trainer_id === trainer.id);
       const job = activeVersion(trainer, jobs);
       const fraction = job && job.total > 0 ? job.downloaded / job.total : 0;
       const percent = job?.state === "extracting" ? 100
         : Number.isFinite(fraction) ? Math.max(0, Math.min(100, Math.floor(fraction * 100))) : 0;
-      return <TrainerRow key={trainer.id}><TrainerName>{trainer.trainer_name}
-        {trainer.version && <div style={{ fontSize: 12, opacity: .65, marginTop: 4 }}>{trainer.version}</div>}
-      </TrainerName><DialogButton style={{ ...actionButtonStyle, ...(job && !installed ? {
-        background: `linear-gradient(to right, #168bd2 0%, #168bd2 ${percent}%, #353b45 ${percent}%, #353b45 100%)`,
-        color: "#fff", opacity: 1,
-      } : {}) }}
-        disabled={installed || Boolean(job) || starting.has(trainer.id) || !library?.success}
-        onClick={() => { void download(trainer); }}>
-        {installed ? t.downloaded : job ? <span role="progressbar" aria-label={trainer.trainer_name}
-          aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>{t.downloading(percent)}</span>
-          : starting.has(trainer.id) ? t.starting : otherVersion ? t.downloadVersion : t.download}
-      </DialogButton></TrainerRow>;
-    })}
+      const unsupported = trainer.supported === false;
+      const description = job ? <span style={{ color: colors.accentText }}>{jobStateLabel(t, job, percent)}</span>
+        : unsupported ? t.tableUnsupported
+        : [trainer.version, originLabel(trainer.origin), otherVersion && !installed ? t.otherVersionInstalled : ""].filter(Boolean).join(" · ");
+      const small = { height: 36, padding: "0 16px", fontSize: 13 } as const;
+      return <Row key={trainer.id} tall title={trainer.trainer_name} description={description} titleColor={unsupported ? colors.muted : undefined}
+        footer={job ? <Progress percent={percent} label={trainer.trainer_name} /> : undefined}>
+        {unsupported ? <Button style={small} disabled>{t.unsupported}</Button>
+          : installed ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 36, fontSize: 13, color: colors.muted, padding: "0 14px" }}>
+          <CheckIcon size={14} />{t.downloaded}</span>
+          : job ? <Button ghost style={{ ...small, padding: "0 14px" }}
+            disabled={cancelling.has(job.id) || !["queued", "downloading", "extracting"].includes(job.state)}
+            onClick={() => { void cancel(job); }}>{cancelling.has(job.id) ? t.cancelling : t.cancel}</Button>
+          : <Button style={small} disabled={starting.has(trainer.id) || !library?.success} onClick={() => { void download(trainer); }}>
+            {starting.has(trainer.id) ? t.starting : t.download}</Button>}
+      </Row>;
+    })}</div>
+    {results.length > 0 && <div style={{ borderTop: `1px solid ${colors.line}` }} />}
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16, padding: "12px 14px", borderRadius: 4, background: colors.surface, fontSize: 13, color: "#a9b1b8" }}>
+      <InfoIcon size={16} />{t.searchHint}</div>
   </Focusable>;
 }

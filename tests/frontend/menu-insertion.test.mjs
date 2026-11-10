@@ -45,7 +45,7 @@ function menuHarness() {
     require(name) {
       if (name === "@decky/ui") return ui;
       if (name === "react/jsx-runtime") return { jsx: (type, props, key) => ({ type, props, key }) };
-      return { menuItemLabel: () => "GCM", gamePageRoute: (id) => `/gcm/${id}` };
+      return { menuItemLabel: () => "GCM", gamePageRoute: (id) => `/gcm/${id}`, logFrontend: () => {} };
     },
   });
   const cleanup = module.exports.default();

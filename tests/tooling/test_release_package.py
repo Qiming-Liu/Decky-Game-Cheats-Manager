@@ -43,7 +43,7 @@ class ReleasePackageTest(unittest.TestCase):
             for name in ("plugin.json", "package.json", "LICENSE", "README.md"):
                 (root / name).write_text("{}")
             (root / "main.py").write_text("class Plugin: pass\n")
-            for name in ("py_modules/_gcm_core", "py_modules/_vendor/requests", "dist", "db", "gcm"):
+            for name in ("py_modules/_gcm_core", "py_modules/_vendor/requests", "dist", "db", "gcm", "bin"):
                 (root / name).mkdir(parents=True)
             (root / "py_modules/_vendor/requests/__init__.py").write_text("pass\n")
             (root / "py_modules/_gcm_core/auth.py").write_text("KEY = 'fixture-only'\n")
@@ -52,6 +52,7 @@ class ReleasePackageTest(unittest.TestCase):
             (root / "dist/index.js.map").write_text("DO_NOT_SHIP")
             (root / "gcm/LICENSE.txt").write_text("license")
             (root / "db/catalog.json").write_text("{}")
+            (root / "bin/gcm-start.exe").write_bytes(b"MZ")
             output = Path(temporary) / "release.zip"
             def javascript(args, **kwargs):
                 Path(args[-1]).write_text("export default {};\n")
@@ -62,6 +63,7 @@ class ReleasePackageTest(unittest.TestCase):
                 self.assertTrue(all(name.startswith("DeckyGCM/") for name in names))
                 self.assertIn("DeckyGCM/py_modules/_gcm_core/auth.pyc", names)
                 self.assertIn("DeckyGCM/package.json", names)
+                self.assertIn("DeckyGCM/bin/gcm-start.exe", names)
                 self.assertEqual([name for name in names if name.endswith(".py")], ["DeckyGCM/main.py"])
                 self.assertFalse(any("secret_config" in name or name.endswith(".map") for name in names))
             self.assertTrue((root / "py_modules/_gcm_core/auth.py").exists())
