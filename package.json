@@ -1,6 +1,6 @@
 {
   "name": "decky-game-cheats-manager",
-  "version": "1.0.2",
+  "version": "1.0.1",
   "description": "Decky Loader plugin bringing Game Cheats Manager's trainer search and download to Steam Deck.",
   "type": "module",
   "scripts": {
