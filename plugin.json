@@ -6,6 +6,6 @@
   "publish": {
     "tags": ["trainer", "cheats"],
     "description": "Search and download game trainers from Game Cheats Manager's catalog (FLiNG, XiaoXing, Cheat Tables, GCM), from the Quick Access menu or a game's library context menu.",
-    "image": ""
+    "image": "https://raw.githubusercontent.com/Qiming-Liu/Decky-Game-Cheats-Manager/main/docs/images/cover.png"
   }
 }
