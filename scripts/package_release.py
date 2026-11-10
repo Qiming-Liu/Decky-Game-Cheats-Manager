@@ -5,6 +5,7 @@ The reversible bytecode packing raises inspection cost; it is not encryption.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -23,8 +24,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def stage(root: Path, destination: Path):
     destination.mkdir()
-    for name in ("plugin.json", "package.json", "main.py", "LICENSE", "README.md"):
+    for name in ("package.json", "main.py", "LICENSE", "README.md"):
         shutil.copy2(root / name, destination / name)
+    # The dev tree keeps Decky's "debug" flag so live reload works; releases drop it.
+    metadata = json.loads((root / "plugin.json").read_text(encoding="utf-8"))
+    if "flags" in metadata:
+        metadata["flags"] = [flag for flag in metadata["flags"] if flag != "debug"]
+    (destination / "plugin.json").write_text(
+        json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     shutil.copytree(root / "py_modules", destination / "py_modules", ignore=shutil.ignore_patterns(
         "__pycache__", "*.pyc", "secret_config.py", "*.pyd",
     ))

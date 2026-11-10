@@ -1,4 +1,5 @@
 """Verify source-free release imports and artifact boundaries."""
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -40,8 +41,9 @@ class ReleasePackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "source"
             root.mkdir()
-            for name in ("plugin.json", "package.json", "LICENSE", "README.md"):
+            for name in ("package.json", "LICENSE", "README.md"):
                 (root / name).write_text("{}")
+            (root / "plugin.json").write_text('{"name": "DeckyGCM", "flags": ["debug", "root"]}')
             (root / "main.py").write_text("class Plugin: pass\n")
             for name in ("py_modules/_gcm_core", "py_modules/_vendor/requests", "dist", "db", "gcm", "bin"):
                 (root / name).mkdir(parents=True)
@@ -66,6 +68,8 @@ class ReleasePackageTest(unittest.TestCase):
                 self.assertIn("DeckyGCM/bin/gcm-start.exe", names)
                 self.assertEqual([name for name in names if name.endswith(".py")], ["DeckyGCM/main.py"])
                 self.assertFalse(any("secret_config" in name or name.endswith(".map") for name in names))
+                metadata = json.loads(archive.read("DeckyGCM/plugin.json"))
+                self.assertEqual(metadata, {"name": "DeckyGCM", "flags": ["root"]})
             self.assertTrue((root / "py_modules/_gcm_core/auth.py").exists())
 
 
