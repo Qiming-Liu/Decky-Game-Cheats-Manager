@@ -1,5 +1,7 @@
 # DeckyGCM
 
+![DeckyGCM](docs/images/cover.png)
+
 [![Build](https://img.shields.io/github/actions/workflow/status/Qiming-Liu/Decky-Game-Cheats-Manager/pr-build-test.yml?branch=main&label=build)](https://github.com/Qiming-Liu/Decky-Game-Cheats-Manager/actions/workflows/pr-build-test.yml)
 [![License: GPL 3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](./LICENSE)
 
