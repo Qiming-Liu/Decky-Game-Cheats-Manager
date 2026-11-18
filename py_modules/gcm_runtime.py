@@ -7,6 +7,7 @@ import threading
 import decky
 
 DATABASE_PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "db")
+setting_path = decky.DECKY_PLUGIN_SETTINGS_DIR
 SEARCH_LOCK = threading.RLock()
 settings = {
     "language": "en_US", "enSearchResults": False, "sortByOrigin": False,

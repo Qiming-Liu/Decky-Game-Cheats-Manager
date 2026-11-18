@@ -73,10 +73,20 @@ def build(output, secret=None):
     emit(output, "config.py", "import re, unicodedata\nfrom pypinyin import lazy_pinyin\nfrom gcm_runtime import DATABASE_PATH, is_chinese", constants + functions(config, {"trainer_sort_key"}))
     index = Imports().visit(parse("search_index.py"))
     emit(output, "search_index.py", "", index.body)
+    # Route pinning and speed reports, as upstream; only its settings and logging come from the runtime.
+    routes = parse("edge_routes.py")
+    config_imports = [n for n in routes.body if isinstance(n, ast.ImportFrom) and n.module == "config"]
+    if len(config_imports) != 1 or {a.name for a in config_imports[0].names} != {"setting_path", "settings"}:
+        raise ValueError("Pinned GCM edge routes interface changed")
+    routes.body.remove(config_imports[0])
+    emit(output, "edge_routes.py", "from gcm_runtime import setting_path, settings, quiet as print", routes.body)
     download_tree = parse("threads/download_base_thread.py")
-    download_constants = [n for n in download_tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id in {"_PARALLEL_THRESHOLD", "_DOWNLOAD_TIMEOUT"} for t in n.targets)]
-    if len(download_constants) != 2:
+    download_constants = [n for n in download_tree.body if isinstance(n, ast.Assign) and all(isinstance(t, ast.Name) and t.id.startswith("_") for t in n.targets)]
+    if not {"_PARALLEL_THRESHOLD", "_DOWNLOAD_TIMEOUT"} <= {t.id for n in download_constants for t in n.targets}:
         raise ValueError("Pinned GCM download constants changed")
+    handoff = next((n for n in download_tree.body if isinstance(n, ast.ClassDef) and n.name == "_Handoff"), None)
+    if handoff is None:
+        raise ValueError("Pinned GCM download helpers changed")
     base = worker(download_tree, "DownloadBaseThread", {
         "__init__", "request_download", "download_queued", "find_download_fname",
         "get_signed_download_url", "find_best_trainer_match", "translate_trainer", "load_json_content",
@@ -89,8 +99,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from gcm_runtime import BackendWorker as QThread, DATABASE_PATH, settings, is_chinese, tr, auth, quiet as print
 from .config import API_TIMEOUT, RETRY_STATUSES
+from . import edge_routes
 from .search_index import translation_index
-''', download_constants + functions(download_tree, {"create_http_session"}) + [base])
+''', download_constants + [copy.deepcopy(handoff)] + functions(download_tree, {"create_http_session", "_timeout", "_etag"}) + [base])
     search_tree = parse("threads/download_display_thread.py")
     search_class = next(n for n in search_tree.body if isinstance(n, ast.ClassDef) and n.name == "DownloadDisplayThread")
     methods = {n.name for n in search_class.body if isinstance(n, ast.FunctionDef)}
@@ -113,7 +124,7 @@ from .download import DownloadBaseThread
         # A no-secret build must not accidentally reuse a previous release's key.
         (output / "auth.py").unlink(missing_ok=True)
     (output / "__init__.py").write_text('"""Generated GCM core (GPL-3.0)."""\n', encoding="utf-8")
-    files = ("config.py", "search_index.py", "threads/download_base_thread.py", "threads/download_display_thread.py")
+    files = ("config.py", "search_index.py", "edge_routes.py", "threads/download_base_thread.py", "threads/download_display_thread.py")
     manifest = {name: hashlib.sha256((SCRIPTS / name).read_bytes()).hexdigest() for name in files}
     (output / "sources.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print("Generated GCM core; authentication " + ("included" if secret else "not configured"))

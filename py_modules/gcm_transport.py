@@ -5,6 +5,7 @@ import certifi
 import requests as _requests
 import threading
 
+RequestException = _requests.RequestException
 ConnectionError = _requests.ConnectionError
 Timeout = _requests.Timeout
 _state = threading.local()
