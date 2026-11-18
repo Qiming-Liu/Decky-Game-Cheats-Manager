@@ -63,6 +63,7 @@ export const InfoIcon = icon(<><circle cx="12" cy="12" r="9" /><path d="M12 11v5
 export const AlertCircleIcon = icon(<><circle cx="12" cy="12" r="9" /><path d="M12 7v6M12 16.5v.5" /></>, 2.4);
 export const ChevronLeftIcon = icon(<path d="M15 5l-7 7 7 7" />, 2.2);
 export const ChevronRightIcon = icon(<path d="M9 5l7 7-7 7" />, 2.2);
+export const LibraryIcon = icon(<><rect x="3" y="4" width="5" height="16" rx="1" /><rect x="10" y="4" width="5" height="16" rx="1" /><path d="M17.5 5.5l3 14" /></>);
 export const ChevronDownIcon = icon(<path d="M6 9l6 6 6-6" />, 2.2);
 export const StopIcon = icon(<><circle cx="12" cy="12" r="9" /><path d="M9 9h6v6H9z" /></>);
 export const TrashIcon = icon(<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />);

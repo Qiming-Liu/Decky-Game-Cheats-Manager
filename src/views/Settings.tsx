@@ -3,10 +3,11 @@ import { useEffect, useState } from "react";
 import { cancelDownload, cleanupTrash } from "../utils/backend";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
 import { refreshUpdate } from "../hooks/useUpdate";
-import { errorMessage, useTranslations } from "../utils/i18n";
+import { errorMessage, menuItemLabel, useTranslations } from "../utils/i18n";
 import { SETTINGS_ROUTE } from "../utils/routes";
 import { colors, IconButton, jobStateLabel } from "./shell";
-import { ChevronRightIcon, CrossIcon, GearIcon } from "./icons";
+import { NAV_BUTTON, NAV_GLYPH_CSS, NavGlyph } from "./AdaptiveNavGlyph";
+import { ChevronRightIcon, CrossIcon, GearIcon, LibraryIcon, PluginIcon } from "./icons";
 
 /** The Quick Access panel: the way to the settings page, running downloads and how to open a game page. */
 export default function Settings() {
@@ -28,7 +29,8 @@ export default function Settings() {
   // The Quick Access menu is its own window without the page styles, so the
   // link brings its own focus colour (an inline background hides Steam's).
   return <PanelSection>
-    <style>{".gcm-panel-link.gpfocus { background: #dcdedf !important; color: #0e141b !important; }"}</style>
+    <style>{".gcm-panel-link.gpfocus { background: #dcdedf !important; color: #0e141b !important; }" + NAV_GLYPH_CSS}</style>
+    <PanelSectionRow><HowTo /></PanelSectionRow>
     <PanelSectionRow>
       <Focusable className="gcm-panel-link" onActivate={openSettings} onClick={openSettings} style={{
         display: "flex", alignItems: "center", gap: 10, height: 44, boxSizing: "border-box", padding: "0 12px", borderRadius: 4,
@@ -64,6 +66,23 @@ export default function Settings() {
     </PanelSectionRow>}
     {message && <PanelSectionRow><div role="status" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{errorMessage(message, t)}</div></PanelSectionRow>}
   </PanelSection>;
+}
+
+/** How to reach a game page: Library, a game's options button, then the plugin's menu item. */
+function HowTo() {
+  return <div style={{
+    display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 4, background: "rgba(0,0,0,.28)",
+    fontSize: 12, color: colors.muted, marginBottom: 14,
+  }}>
+    <LibraryIcon size={16} />
+    <ChevronRightIcon size={10} />
+    <NavGlyph button={NAV_BUTTON.MENU} fallback="≡" />
+    <ChevronRightIcon size={10} />
+    <PluginIcon size={16} color={colors.accentText} />
+    <span style={{ minWidth: 0, color: "#dcdedf", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      {menuItemLabel()}
+    </span>
+  </div>;
 }
 
 function openSettings() {
