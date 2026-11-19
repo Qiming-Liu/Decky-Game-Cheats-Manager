@@ -85,8 +85,9 @@ export function showActions(actions: MenuAction[], target?: EventTarget) {
   </Menu>, target ?? window);
 }
 
-export function SectionTitle({ children, first }: { children: ReactNode; first?: boolean }) {
-  return <div style={{ fontSize: 12, color: colors.muted, fontWeight: 500, padding: `${first ? 2 : 16}px 4px 6px` }}>{children}</div>;
+/** A section's small heading; `top` overrides the space above it. */
+export function SectionTitle({ children, first, top }: { children: ReactNode; first?: boolean; top?: number }) {
+  return <div style={{ fontSize: 12, color: colors.muted, fontWeight: 500, padding: `${top ?? (first ? 2 : 16)}px 4px 6px` }}>{children}</div>;
 }
 
 export interface RowProps {

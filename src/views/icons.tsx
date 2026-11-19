@@ -13,6 +13,17 @@ function icon(paths: ReactNode, defaultWidth = 2, fill?: boolean) {
 }
 
 /**
+ * The plugin's own mark, from the project logo: a fingertip pressing up into a ring.
+ * One colour, with the nail, knuckles and the gap round the finger cut out.
+ */
+export function PluginIcon({ size = "1em", color = "currentColor" }: { size?: number | string; color?: string }) {
+  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill={color} fillRule="evenodd" style={{ flex: "0 0 auto" }}>
+    <path d="M6.25 19.68A10 10 0 1 1 17.75 19.68V9.45A5.75 5.75 0 0 0 6.25 9.45Z" />
+    <path d="M8.25 24V9.45a3.75 3.75 0 0 1 7.5 0V24ZM10.4 12.5V9.1a1.6 1.6 0 0 1 3.2 0v3.4a.8.8 0 0 1-.8.8h-1.6a.8.8 0 0 1-.8-.8ZM11 15.1h2a.8.8 0 0 1 0 1.6h-2a.8.8 0 0 1 0-1.6ZM11 18.3h2a.8.8 0 0 1 0 1.6h-2a.8.8 0 0 1 0-1.6Z" />
+  </svg>;
+}
+
+/**
  * The L1/R1 bumper glyph in SteamOS's style: a shoulder-shaped plate, rounded on the outer top
  * corner, with the button's name cut out of it so the background shows through.
  */

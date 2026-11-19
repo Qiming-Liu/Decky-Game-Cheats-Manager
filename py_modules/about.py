@@ -1,7 +1,7 @@
-"""The About page's data: the newest release on GitHub and the system the plugin runs on.
+"""The About page's data: the newest release on GitLab and the system the plugin runs on.
 
 The release check runs at most once every seven days. It never raises: when
-GitHub cannot be reached the page simply shows the installed version, and
+GitLab cannot be reached the page simply shows the installed version, and
 the next attempt waits a day so an offline Deck does not retry on every open.
 """
 from __future__ import annotations
@@ -14,8 +14,8 @@ import time
 import decky
 from library_storage import read_json, write_json
 
-REPOSITORY = "Qiming-Liu/Decky-Game-Cheats-Manager"
-RELEASE_API = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
+# Redirects to the newest release on GitLab.
+RELEASE_API = "https://gitlab.com/api/v4/projects/alan-liu%2FDecky-Game-Cheats-Manager/releases/permalink/latest"
 PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "update_check.json")
 INTERVAL = 7 * 24 * 3600
 RETRY_AFTER_FAILURE = 24 * 3600
@@ -57,12 +57,12 @@ def is_newer(latest: str, current: str) -> bool:
 
 
 def _fetch() -> str:
-    """The newest release's version, or "" when GitHub gives no usable answer."""
+    """The newest release's version, or "" when GitLab gives no usable answer."""
     import certifi
     import requests
 
     response = requests.get(RELEASE_API, timeout=10, verify=certifi.where(), headers={
-        "Accept": "application/vnd.github+json", "User-Agent": "DeckyGCM",
+        "Accept": "application/json", "User-Agent": "DeckyGCM",
     })
     if response.status_code != 200:
         return ""
@@ -71,7 +71,7 @@ def _fetch() -> str:
 
 
 def update(now: float | None = None) -> dict:
-    """The installed and newest versions; checks GitHub when the last check is a week old."""
+    """The installed and newest versions; checks GitLab when the last check is a week old."""
     now = time.time() if now is None else now
     current = _version(decky.DECKY_PLUGIN_VERSION) or str(decky.DECKY_PLUGIN_VERSION)
     with _lock:

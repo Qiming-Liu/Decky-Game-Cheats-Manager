@@ -1,4 +1,4 @@
-"""The weekly release check: how often GitHub is asked and that failures stay silent."""
+"""The weekly release check: how often GitLab is asked and that failures stay silent."""
 from __future__ import annotations
 
 import tempfile
@@ -26,7 +26,7 @@ class UpdateCheckTest(unittest.TestCase):
                           return_value=None if isinstance(answer, Exception) else answer) as fetch:
             return about.update(now), fetch.call_count
 
-    def test_asks_github_once_a_week(self):
+    def test_asks_gitlab_once_a_week(self):
         self.assertEqual(self.check(0, "1.2.0"), ({"current": "1.0.1", "latest": "1.2.0"}, 1))
         self.assertEqual(self.check(6 * DAY, "1.3.0"), ({"current": "1.0.1", "latest": "1.2.0"}, 0))
         self.assertEqual(self.check(7 * DAY, "1.3.0"), ({"current": "1.0.1", "latest": "1.3.0"}, 1))

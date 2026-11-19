@@ -232,7 +232,7 @@ class Plugin:
         return {"success": True}
 
     async def get_update(self):
-        # Opened with every Quick Access view; GitHub is asked at most weekly.
+        # Opened with every Quick Access view; GitLab is asked at most weekly.
         return await asyncio.to_thread(about.update)
 
     async def get_system_name(self):

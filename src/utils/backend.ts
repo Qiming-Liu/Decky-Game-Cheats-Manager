@@ -205,7 +205,7 @@ export async function cancelDownload(context: { appId: string; jobId: string }):
   return result.job;
 }
 
-/** The installed version and, when GitHub has a newer release, its version ("" otherwise). */
+/** The installed version and, when GitLab has a newer release, its version ("" otherwise). */
 export interface UpdateInfo { current: string; latest: string }
 export const getUpdate = callable<[], UpdateInfo>("get_update");
 export const getSystemName = callable<[], string>("get_system_name");

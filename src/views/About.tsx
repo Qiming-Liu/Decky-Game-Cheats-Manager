@@ -1,25 +1,27 @@
 import { Focusable, ModalRoot, showModal } from "@decky/ui";
 import qrcode from "qrcode-generator";
-import { FaUnlock } from "react-icons/fa";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { AUTHOR_AVATAR } from "../data/avatar";
+import { PLUGIN_LOGO } from "../data/logo";
+import { RECOMMENDED_LOGO } from "../data/recommended";
 import { publishOptions } from "../hooks/useCustomOptions";
 import { useLaunchOptions } from "../hooks/useLaunchOptions";
 import { publishSettings } from "../hooks/useSettings";
 import { REPOSITORY_URL, useUpdate } from "../hooks/useUpdate";
 import { getSystemName, resetSettings } from "../utils/backend";
 import { errorMessage, getLanguage, useTranslations } from "../utils/i18n";
-import { Button, colors, IconButton, PageHeader, Row, SectionTitle } from "./shell";
+import { Button, colors, IconButton, Row, SectionTitle } from "./shell";
 import { ChevronRightIcon } from "./icons";
+import LogPanel from "./LogPanel";
 import { openExternal, VersionBadge } from "./update";
 
 const AUTHOR = "ProSS及时行乐";
-const GITHUB_URL = `${REPOSITORY_URL}#deckygcm`;
+const HOME_URL = `${REPOSITORY_URL}#deckygcm`;
 const BILIBILI_URL = "https://space.bilibili.com/23706122";
 const GCM_URL = "https://gamezonelabs.com/products/gcm";
-const CREAMDECK_URL = "https://github.com/Qiming-Liu/CreamDeck#creamdeck";
+const CREAMDECK_URL = "https://gitlab.com/alan-liu/CreamDeck#creamdeck";
 
-/** A new GitHub issue with the details a report needs already filled in. */
+/** A new GitLab issue with the details a report needs already filled in. */
 export function feedbackUrl(details: { version: string; system: string; compatTool: string; appId: string }) {
   const body = [
     `**Version:** ${details.version || "?"}`,
@@ -30,9 +32,9 @@ export function feedbackUrl(details: { version: string; system: string; compatTo
     "**What happened:**",
     "",
     "",
-    "**Log:** attach Advanced settings > Log > Export",
+    "**Log:** attach About > Log > Export",
   ].join("\n");
-  return `${REPOSITORY_URL}/issues/new?body=${encodeURIComponent(body)}`;
+  return `${REPOSITORY_URL}/-/issues/new?${encodeURIComponent("issue[description]")}=${encodeURIComponent(body)}`;
 }
 
 /** The QR code as one SVG path, drawn locally. */
@@ -54,13 +56,13 @@ function QrCode({ text, label, size = 132 }: { text: string; label: string; size
   </div>;
 }
 
-const GithubIcon = () => <svg aria-hidden="true" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-  <path d="M9 19c-4 1.3-4-2-6-2.5M15 21v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1-.3-3.3 1.3a11.4 11.4 0 00-6 0C7 2.8 6 3.1 6 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004.6 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" /></svg>;
+const GitlabIcon = () => <svg aria-hidden="true" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+  <path d="M22 13.3L18.7 3.3a.4.4 0 00-.8 0l-2.2 6.7H8.3L6.1 3.3a.4.4 0 00-.8 0L2 13.3a.7.7 0 00.3.8L12 21l9.7-6.9a.7.7 0 00.3-.8z" /></svg>;
 const BilibiliIcon = () => <svg aria-hidden="true" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
   <rect x="3" y="6" width="18" height="14" rx="3" /><path d="M8 3l3 3M16 3l-3 3M9 12v2M15 12v2" /></svg>;
 
 function LinkRow({ title, description, note, icon, url }: { title: string; description?: string; note?: string; icon?: ReactNode; url: string }) {
-  return <Row icon={icon} title={title} description={description} onActivate={() => openExternal(url)} aside={<>
+  return <Row dense icon={icon} title={title} description={description} onActivate={() => openExternal(url)} aside={<>
     {note && <span style={{ flex: "0 0 auto", fontSize: 12, color: colors.muted }}>{note}</span>}
     <ChevronRightIcon size={14} color={colors.muted} />
   </>} />;
@@ -110,24 +112,23 @@ export default function About({ appId, compatTool }: { appId: string; compatTool
 
   const linkButton = { background: colors.button, color: colors.text };
   return <div style={{ padding: "0 8px 16px 0" }}>
-    <PageHeader title={t.tabAbout} gap={12} />
     {/* One row of columns, so right from the author links reaches the right column. */}
     <Focusable flow-children="row" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 24, alignItems: "start" }}>
       <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <Focusable flow-children="row" aria-label={AUTHOR} style={{ padding: "10px 12px", borderRadius: 4, background: "rgba(0,0,0,.28)", display: "flex", alignItems: "center", gap: 12 }}>
+        <Focusable flow-children="row" aria-label={AUTHOR} style={{ padding: "8px 12px", borderRadius: 4, background: "rgba(0,0,0,.28)", display: "flex", alignItems: "center", gap: 12 }}>
           <img src={AUTHOR_AVATAR} alt="" width={44} height={44} style={{ flex: "0 0 44px", borderRadius: 22, objectFit: "cover", background: colors.button }} />
           <div style={{ flex: "1 1 auto", minWidth: 0, fontSize: 18, fontWeight: 700, color: colors.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{AUTHOR}</div>
           {getLanguage() !== "en" && <IconButton label={t.bilibili} style={linkButton} onClick={() => openExternal(BILIBILI_URL)}><BilibiliIcon /></IconButton>}
-          <IconButton label="GitHub" style={linkButton} onClick={() => openExternal(GITHUB_URL)}><GithubIcon /></IconButton>
+          <IconButton label="GitLab" style={linkButton} onClick={() => openExternal(HOME_URL)}><GitlabIcon /></IconButton>
         </Focusable>
 
-        <SectionTitle>{t.aboutPlugin}</SectionTitle>
-        <Row title={t.aboutVersion}><VersionBadge current={current} latest={latest} /></Row>
-        <Row title={t.feedback} description={t.feedbackHint}>
-          <Button onClick={() => showModal(<FeedbackModal url={feedback} />)}><GithubIcon />{t.feedbackIssue}</Button>
+        <Row dense icon={<img src={PLUGIN_LOGO} alt="" width={40} height={40} style={{ display: "block", borderRadius: 8 }} />}
+          title="DeckyGCM" description={t.deckyPlugin} aside={<span aria-label={t.aboutVersion}><VersionBadge current={current} latest={latest} /></span>} />
+        <Row dense title={t.feedback} description={t.feedbackHint}>
+          <Button onClick={() => showModal(<FeedbackModal url={feedback} />)}><GitlabIcon />{t.feedbackIssue}</Button>
         </Row>
         <div style={{ borderBottom: `1px solid ${colors.line}` }}>
-          <Row title={t.reset} description={resetError || (reset === "done" ? t.resetDone : t.resetHint)}
+          <Row dense title={t.reset} description={resetError || (reset === "done" ? t.resetDone : t.resetHint)}
             titleColor={reset === "confirm" ? colors.danger : undefined}>
             <Button disabled={reset === "busy" || launch.options === undefined} onClick={() => void runReset()}
               style={reset === "confirm" ? { background: colors.danger, color: "#fff" } : undefined}>
@@ -135,20 +136,20 @@ export default function About({ appId, compatTool }: { appId: string; compatTool
             </Button>
           </Row>
         </div>
-      </Focusable>
-
-      <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <SectionTitle first>{t.thanks}</SectionTitle>
+        <SectionTitle top={6}>{t.thanks}</SectionTitle>
         <div style={{ borderBottom: `1px solid ${colors.line}` }}>
           <LinkRow title="Game Cheats Manager" note="dyang886" url={GCM_URL} />
         </div>
-        <SectionTitle>{t.recommended}</SectionTitle>
+        <SectionTitle top={6}>{t.recommended}</SectionTitle>
         <div style={{ borderBottom: `1px solid ${colors.line}` }}>
-          <LinkRow title="CreamDeck" description={t.creamDeckHint} note={t.deckyPlugin} url={CREAMDECK_URL} icon={<span style={{
-            display: "inline-flex", width: 44, height: 44, borderRadius: 6, alignItems: "center", justifyContent: "center",
-            background: "rgba(26,159,255,.18)", color: colors.accentText, fontSize: 18,
-          }}><FaUnlock /></span>} />
+          <LinkRow title="CreamDeck" description={t.creamDeckHint} note={t.deckyPlugin} url={CREAMDECK_URL} icon={<img src={RECOMMENDED_LOGO} alt="" width={36} height={36} style={{ display: "block", borderRadius: 6 }} />} />
         </div>
+      </Focusable>
+
+      {/* The log gets the whole right half, down to the button hints. */}
+      <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <SectionTitle first>{t.log}</SectionTitle>
+        <LogPanel height="calc(100vh - 170px)" />
       </Focusable>
     </Focusable>
   </div>;

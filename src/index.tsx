@@ -1,6 +1,5 @@
 import { routerHook } from "@decky/api";
 import { definePlugin } from "@decky/ui";
-import { PiHandTapFill as PluginIcon } from "react-icons/pi";
 
 import installGameMenu from "./patch";
 import watchTrainerLaunches from "./launchCheck";
@@ -9,6 +8,7 @@ import { initLanguage, PLUGIN_NAME } from "./utils/i18n";
 import { GAME_PAGE_ROUTE, SETTINGS_ROUTE } from "./utils/routes";
 import AdvancedSettings from "./views/AdvancedSettings";
 import GamePage from "./views/GamePage";
+import { PluginIcon } from "./views/icons";
 import Settings from "./views/Settings";
 import { UpdateDot, VersionBadge } from "./views/update";
 import { refreshUpdate, useUpdate } from "./hooks/useUpdate";

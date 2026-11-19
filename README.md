@@ -2,7 +2,7 @@
 
 ![DeckyGCM](docs/images/cover.png)
 
-[![Build](https://img.shields.io/github/actions/workflow/status/Qiming-Liu/Decky-Game-Cheats-Manager/pr-build-test.yml?branch=main&label=build)](https://github.com/Qiming-Liu/Decky-Game-Cheats-Manager/actions/workflows/pr-build-test.yml)
+[![Build](https://gitlab.com/alan-liu/Decky-Game-Cheats-Manager/badges/main/pipeline.svg?key_text=build)](https://gitlab.com/alan-liu/Decky-Game-Cheats-Manager/-/pipelines)
 [![License: GPL 3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](./LICENSE)
 
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for managing
@@ -46,7 +46,8 @@ effect the next time the game starts.
    also shows the exact launch options Steam receives.
 
    ![Launch options tab showing what Steam receives and the global option presets](docs/images/game-launch-options.png)
-4. **About**: version, update check, project links and a reset for the game.
+4. **About**: version, update check, project links, the plugin log (export it for bug
+   reports) and a reset for the game.
 
 Environment variables are always written in alphabetical order, one per name. Prefix
 commands and game arguments keep their order. Launch options using shell operators,

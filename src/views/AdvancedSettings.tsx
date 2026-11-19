@@ -1,18 +1,14 @@
-import { FileSelectionType, openFilePicker, toaster } from "@decky/api";
+import { FileSelectionType, openFilePicker } from "@decky/api";
 import { Dropdown, Focusable, Navigation, Toggle } from "@decky/ui";
-import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { changeSettings, useSettings } from "../hooks/useSettings";
 import { invalidateLibrary } from "../hooks/useLibrary";
-import {
-  clearLog, DatabaseState, exportLog, getLibrarySettings, getLog, getLogExportDirectory, LAUNCH_DELAYS, LogLine, logFrontend, refreshDatabase,
-  setLibraryDirectory,
-} from "../utils/backend";
-import { errorKey, errorMessage, PLUGIN_NAME, useTranslations } from "../utils/i18n";
+import { DatabaseState, getLibrarySettings, LAUNCH_DELAYS, logFrontend, refreshDatabase, setLibraryDirectory } from "../utils/backend";
+import { errorKey, errorMessage, useTranslations } from "../utils/i18n";
 import { Translations } from "../utils/locales";
 import { Button, colors, IconButton, mono, PageStyle, Row, SectionTitle, Status } from "./shell";
-import { BackIcon, DownloadIcon, TrashIcon } from "./icons";
+import { BackIcon } from "./icons";
 
-const LOG_LINES = 200;
 const pad = (value: number) => String(value).padStart(2, "0");
 const formatTime = (seconds: number) => {
   const date = new Date(seconds * 1000);
@@ -44,54 +40,27 @@ function Card({ label, children, hint, action }: { label: string; children: Reac
 
 const dot = (color: string) => <span aria-hidden style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color }} />;
 
-const levelColor = (level: string) => level === "ERROR" || level === "CRITICAL" ? colors.danger
-  : level === "WARNING" ? colors.warning : undefined;
-
 /** The full-page settings shared by every game, opened from the Quick Access panel. */
 export default function AdvancedSettings() {
   const t = useTranslations();
   const settings = useSettings();
   const [directory, setDirectory] = useState("");
   const [database, setDatabase] = useState<DatabaseState>();
-  const [lines, setLines] = useState<LogLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
   const loadStorage = () => getLibrarySettings().then(value => { setDirectory(value.directory); setDatabase(value.database); });
-  const loadLog = () => getLog(LOG_LINES).then(setLines);
   useEffect(() => {
     void loadStorage().catch(error => { logFrontend("error", "Advanced settings: loading storage failed", error); setMessage("settingsFailed"); });
-    void loadLog().catch(() => {});
-    // The log and a running database update keep changing while the page is open.
-    const timer = window.setInterval(() => { void loadLog().catch(() => {}); void loadStorage().catch(() => {}); }, 3000);
+    // A running database update keeps changing while the page is open.
+    const timer = window.setInterval(() => { void loadStorage().catch(() => {}); }, 3000);
     return () => window.clearInterval(timer);
   }, []);
-  // Keep the newest lines in view while the log grows, unless the user scrolled up.
-  const logBox = useRef<HTMLDivElement>(null);
-  const atBottom = useRef(true);
-  useLayoutEffect(() => {
-    const box = logBox.current;
-    if (box && atBottom.current) box.scrollTop = box.scrollHeight;
-  }, [lines]);
-
   async function run(work: () => Promise<void>) {
     setBusy(true); setMessage("");
     try { await work(); }
     catch (error) { setMessage(error instanceof Error ? error.message : "unknownError"); }
     finally { setBusy(false); }
-  }
-  async function exportFile() {
-    let folder: string;
-    try {
-      const start = await getLogExportDirectory().catch(() => "/home");
-      const picked = await openFilePicker(FileSelectionType.FOLDER, start, false, true);
-      folder = picked.realpath || picked.path;
-    } catch { return; }
-    try {
-      toaster.toast({ title: PLUGIN_NAME, body: t.exportedTo(await exportLog(folder)) });
-    } catch (error) {
-      toaster.toast({ title: PLUGIN_NAME, body: error instanceof Error && error.message ? error.message : t.unknownError, critical: true });
-    }
   }
   async function chooseFolder() {
     let path: string;
@@ -160,8 +129,10 @@ export default function AdvancedSettings() {
           <Toggle value={Boolean(settings?.skip_launcher_check)} disabled={busy || !settings} onChange={value => change({ skip_launcher_check: value })} />
         </Row>
         <div style={{ borderTop: `1px solid ${colors.line}` }} />
+      </Focusable>
 
-        <SectionTitle>{t.storage}</SectionTitle>
+      <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflowY: "auto" }}>
+        <SectionTitle first>{t.storage}</SectionTitle>
         <Focusable flow-children="row" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
           <Card label={t.folder} hint={t.pathMoveHint}
             action={<Button style={cardButton} disabled={busy || !directory} onClick={() => { void chooseFolder(); }}>{t.changePath}</Button>}>
@@ -170,38 +141,9 @@ export default function AdvancedSettings() {
           {databaseCard}
         </Focusable>
       </Focusable>
-
-      <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", minHeight: 0, gap: 10 }}>
-        <SectionTitle first>{t.log}</SectionTitle>
-        <section aria-label={t.log} style={{
-          flex: "1 1 auto", minHeight: 0, boxSizing: "border-box", padding: "12px 14px", borderRadius: 4, background: "rgba(0,0,0,.4)",
-          display: "flex", flexDirection: "column", gap: 8,
-        }}>
-          <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: colors.muted }}>
-            <span>{t.recentLines(LOG_LINES)}</span>
-            <div style={{ display: "flex", gap: 6 }}>
-              <IconButton label={t.exportLog} style={logButton} disabled={!lines.length}
-                onClick={() => { void exportFile(); }}><DownloadIcon size={16} /></IconButton>
-              <IconButton label={t.clear} style={logButton} disabled={!lines.length}
-                onClick={() => { void run(async () => { await clearLog(); setLines([]); }); }}><TrashIcon size={16} /></IconButton>
-            </div>
-          </Focusable>
-          <div ref={logBox} onScroll={() => {
-            const box = logBox.current;
-            if (box) atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-          }} style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", fontSize: 12, lineHeight: 1.7, ...mono, whiteSpace: "pre-wrap", color: "#a9b1b8" }}>
-            {lines.length ? lines.map((line, index) => <div key={index}>
-              <span style={{ color: colors.dim }}>{line.time}</span>{" "}
-              <span style={{ color: levelColor(line.level) }}>
-                {line.level === "WARNING" ? "WARN" : line.level} {line.message}</span>
-            </div>) : <span style={{ color: colors.dim }}>{t.logEmpty}</span>}
-          </div>
-        </section>
-      </Focusable>
     </Focusable>
   </div>;
 }
 
 const cardButton = { width: "100%", height: 36, fontSize: 13 } as const;
 const statusLine = { display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: colors.text } as const;
-const logButton = { width: 32, minWidth: 32, height: 30, background: colors.button, color: colors.text } as const;
