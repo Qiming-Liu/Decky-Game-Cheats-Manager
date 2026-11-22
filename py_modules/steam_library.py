@@ -35,6 +35,21 @@ def _steam_root() -> Optional[str]:
     return None
 
 
+def language() -> str:
+    """Steam's interface language as Steam names it ("schinese", "english", ...), or ""."""
+    path = os.path.join(decky.DECKY_USER_HOME, ".steam", "registry.vdf")
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            data = parse(f.read())
+    except OSError:
+        return ""
+    for root in ("Registry", "registry"):
+        value = get_child(data, root, "HKCU", "Software", "Valve", "Steam", "language")
+        if isinstance(value, str):
+            return value
+    return ""
+
+
 def _library_folders() -> list[str]:
     """Returns every steamapps folder (default + any additional Steam library, e.g. on an SD card)."""
     root = _steam_root()

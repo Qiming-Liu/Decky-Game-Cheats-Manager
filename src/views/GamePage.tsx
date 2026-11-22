@@ -7,10 +7,11 @@ import Modifiers from "./Modifiers";
 import CommonSettings from "./CommonSettings";
 import CustomOptions from "./CustomOptions";
 import About from "./About";
+import AdvancedSettings from "./AdvancedSettings";
 import { UpdateDot } from "./update";
 import { useUpdate } from "../hooks/useUpdate";
 import { colors, PageStyle } from "./shell";
-import { AlertCircleIcon, InfoIcon, PlayIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { AlertCircleIcon, GearIcon, InfoIcon, PlayIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { isCompatToolUnsupported } from "../domain/compatTool";
 import { isUnsupportedLauncher } from "../domain/steam";
 import { useSettings } from "../hooks/useSettings";
@@ -80,13 +81,15 @@ export default function GamePage() {
     <span style={{ fontSize: 12, fontWeight: 400, color: colors.muted, letterSpacing: .5 }}>{PLUGIN_NAME}</span>
     <span style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.25, color: colors.text, overflowWrap: "anywhere" }}>{name || t.gameTitle(appId)}</span>
     <div style={{ fontSize: 12, fontWeight: 400, lineHeight: 1.5, color: colors.muted }}>
-      {compatTool && <div style={{ display: "flex", alignItems: "center", gap: 4, color: unsupported ? colors.warning : colors.success }}>
-        {unsupported && <AlertCircleIcon size={14} color={colors.warning} />}
-        <span>{compatTool}</span>
-        {unsupported && <span>· {t.compatUnsupported}</span>}
+      {/* One text run, so a long tool name wraps like a sentence and the mark stays on its first line. */}
+      {compatTool && <div style={{ display: "flex", alignItems: "flex-start", gap: 4, color: unsupported ? colors.warning : colors.success }}>
+        {unsupported && <span style={{ display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}><AlertCircleIcon size={14} color={colors.warning} /></span>}
+        <span style={{ minWidth: 0 }}>{compatTool}
+          {unsupported && <span style={{ whiteSpace: "nowrap" }}> · {t.compatUnsupported}</span>}</span>
       </div>}
-      {launcherBlocked && <div style={{ display: "flex", alignItems: "center", gap: 4, color: colors.warning }}>
-        <AlertCircleIcon size={14} color={colors.warning} /><span>{t.launcherUnsupported}</span>
+      {launcherBlocked && <div style={{ display: "flex", alignItems: "flex-start", gap: 4, color: colors.warning }}>
+        <span style={{ display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}><AlertCircleIcon size={14} color={colors.warning} /></span>
+        <span style={{ minWidth: 0 }}>{t.launcherUnsupported}</span>
       </div>}
       <div>AppID {appId}</div>
     </div>
@@ -95,6 +98,7 @@ export default function GamePage() {
     { identifier: "modifiers", title: t.tabModifiers, hideTitle: true, icon: <PlayIcon />, content: <Modifiers appId={appId} gameName={name} unsupportedTool={unsupported ? compatTool : ""} /> },
     { identifier: "common", title: t.tabCommon, hideTitle: true, icon: <SlidersIcon />, content: <CommonSettings appId={appId} /> },
     { identifier: "custom", title: t.tabCustom, hideTitle: true, icon: <TerminalIcon />, content: <CustomOptions appId={appId} /> },
+    { identifier: "advanced", title: t.advancedSettings, hideTitle: true, icon: <GearIcon />, content: <AdvancedSettings embedded /> },
     {
       identifier: "about", hideTitle: true, icon: <InfoIcon />, content: <About appId={appId} compatTool={compatTool} />,
       title: <span style={{ display: "flex", alignItems: "center", gap: 10 }}>{t.tabAbout}{latest && <UpdateDot />}</span>,

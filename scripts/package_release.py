@@ -20,6 +20,8 @@ else:
     from release_python import protect_python
 
 ROOT = Path(__file__).resolve().parents[1]
+# Built by scripts/build_native.sh from these sources.
+NATIVE = {"gcm-start.exe": "native/gcm_start.c", "gcm-pipewait.dll": "native/gcm_pipewait.c"}
 
 
 def stage(root: Path, destination: Path):
@@ -37,7 +39,14 @@ def stage(root: Path, destination: Path):
     ))
     shutil.copytree(root / "db", destination / "db")
     (destination / "bin").mkdir()
-    shutil.copy2(root / "bin/gcm-start.exe", destination / "bin/gcm-start.exe")
+    for name in NATIVE:
+        shutil.copy2(root / "bin" / name, destination / "bin" / name)
+    if (root / "resources").is_dir():
+        shutil.copytree(root / "resources", destination / "resources", ignore=shutil.ignore_patterns("ce-languages"))
+    # The Cheat Engine language pack ships from the upstream submodule.
+    languages = root / "gcm/src/dependency/CE Translations/zh_CN"
+    if languages.is_dir():
+        shutil.copytree(languages, destination / "resources/ce-languages/zh_CN")
     (destination / "dist").mkdir()
     # Rollup's sole runtime entry point. Never ship maps or development bundles.
     subprocess.run(["node", str(ROOT / "scripts/obfuscate_release.mjs"),
@@ -55,8 +64,13 @@ def package(output: Path):
         raise RuntimeError("Generate the authenticated GCM core before packaging")
     if not (ROOT / "py_modules/_vendor/requests/__init__.py").is_file():
         raise RuntimeError("Vendor Linux Python dependencies before packaging")
-    if not (ROOT / "bin/gcm-start.exe").is_file():
-        raise RuntimeError("Build the trainer starter (scripts/build_native.sh) before packaging")
+    for name, source_name in NATIVE.items():
+        built, source = ROOT / "bin" / name, ROOT / source_name
+        if not built.is_file():
+            raise RuntimeError(f"Build bin/{name} (scripts/build_native.sh) before packaging")
+        # bin/ is not tracked, so a local build can outlive its source and ship an old binary.
+        if source.is_file() and built.stat().st_mtime < source.stat().st_mtime:
+            raise RuntimeError(f"bin/{name} is older than {source_name}; rebuild it (scripts/build_native.sh)")
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="gcm-release-") as temporary:

@@ -42,12 +42,29 @@ class UpdateCheckTest(unittest.TestCase):
             self.path.unlink(missing_ok=True)
             self.assertEqual(self.check(0, about._version(tag))[0]["latest"], latest, tag)
 
+    def test_test_builds_are_offered_only_to_testers(self):
+        for installed, release, offered in (
+            ("1.0.4", "v1.0.5-test", False),
+            ("1.0.4", "v1.0.4-test", False),
+            ("1.0.5-test", "v1.0.5", True),
+            ("1.0.4-test", "v1.0.4", True),
+            ("1.0.5-test", "v1.0.5-test", False),
+            ("1.0.5-test", "v1.0.5-test2", True),
+            ("1.0.5-test2", "v1.0.5-test10", True),
+            ("1.0.5-test2", "v1.0.5-test", False),
+            ("1.0.4-test", "v1.0.5-test", True),
+            ("1.0.5-test", "v1.0.4", False),
+        ):
+            self.assertEqual(about.is_newer(about._version(release), installed), offered, (installed, release))
+
     def test_a_test_build_is_offered_its_release(self):
         with patch.object(about.decky, "DECKY_PLUGIN_VERSION", "1.0.2-test"):
             self.assertEqual(self.check(0, "1.0.1"), ({"current": "1.0.2-test", "latest": ""}, 1))
             self.path.unlink()
             self.assertEqual(self.check(0, about._version("v1.0.2"))[0]["latest"], "1.0.2")
-        self.assertFalse(about.is_newer("1.0.2-test", "1.0.2"))
+        # A release never sees a test build, even through the weekly check.
+        self.path.unlink()
+        self.assertEqual(self.check(0, about._version("v1.0.2-test"))[0]["latest"], "")
 
     def test_damaged_state_or_clock_jump_checks_again(self):
         self.path.write_text("not json", encoding="utf-8")

@@ -9,6 +9,8 @@ const environment = (name: string, value: string, raw?: string): LaunchOptionDef
 // SteamOS-style systems reach the same home through /home and /var/home.
 const canonical = (path: string) => path.startsWith("/var/home/") ? path.slice(4) : path;
 const within = (path: string, folder: string) => canonical(path).startsWith(`${canonical(folder)}/`);
+/** True when both name the same file, whichever way the home directory is written. */
+export const samePath = (first: string, second: string) => canonical(first) === canonical(second);
 
 /**
  * The command run beside the game. Steam runs launch options through a shell,
@@ -31,18 +33,42 @@ const windowsPath = (path: string) => `Z:${path.split("/").join("\\")}`;
 // argument, and backslashes would read as folder separators.
 const passable = (path: string) => path.startsWith("/") && !/[\x00-\x1f:%"\\]/.test(path);
 
+const CHEAT_ENGINE_FLAG = "--ce";
+/** A Cheat Engine table, which the launcher opens through Cheat Engine. */
+export const isTable = (path: string) => /\.(ct|cetrainer)$/i.test(path);
+
 /**
  * The command that starts `programs` in order through the launcher script.
  * Proton splits the value into words and runs them with Wine. The script lives
  * in the trainer library, so programs inside it are passed relative to the
- * script's folder; others as full Windows paths.
+ * script's folder; others as full Windows paths. Tables need `cheatEngine`,
+ * the Cheat Engine program, which the launcher is told first.
  */
-export function launcherCommand(script: string, programs: string[]): string {
+export function launcherCommand(script: string, programs: string[], cheatEngine = ""): string {
   if (!programs.length || !programs.every(passable)) throw new Error("Choose a valid absolute Linux program path without colons.");
+  const tables = programs.some(isTable);
+  if (tables && !cheatEngine) throw new Error("cheat_engine_missing");
+  if (tables && !passable(cheatEngine)) throw new Error("Choose a valid absolute Linux program path without colons.");
   const root = folderOf(script);
   const argument = (program: string) => within(program, root)
     ? canonical(program).slice(canonical(root).length + 1).split("/").join("\\") : windowsPath(program);
-  return [script, ...programs.map(argument)].map(renderWord).join(" ");
+  const engine = tables ? [CHEAT_ENGINE_FLAG, argument(cheatEngine)] : [];
+  return [script, ...engine, ...programs.map(argument)].map(renderWord).join(" ");
+}
+
+/** The launcher's arguments as Linux paths, when `command` runs one of `scripts`. */
+function launcherArguments(command: string | undefined, scripts: string[]): { engine: string; programs: string[] } | undefined {
+  const words = command ? parseRawWords(command)?.map(parseLiteralWord) : undefined;
+  if (!words || words.some(word => word === undefined)) return undefined;
+  const script = scripts.find(item => item && canonical(item) === canonical(words[0]!));
+  if (!script) return undefined;
+  const root = folderOf(script);
+  const path = (word: string) => /^Z:\\/i.test(word)
+    ? word.slice(2).split("\\").join("/") : `${root}/${word.split("\\").join("/")}`;
+  const rest = words.slice(1) as string[];
+  return rest[0] === CHEAT_ENGINE_FLAG
+    ? { engine: rest[1] === undefined ? "" : path(rest[1]), programs: rest.slice(2).map(path) }
+    : { engine: "", programs: rest.map(path) };
 }
 
 /**
@@ -52,16 +78,15 @@ export function launcherCommand(script: string, programs: string[]): string {
  */
 export function launcherPrograms(command: string | undefined, ...scripts: string[]): string[] {
   if (!command) return [];
+  const launched = launcherArguments(command, scripts);
+  if (launched) return launched.programs;
   const words = parseRawWords(command)?.map(parseLiteralWord);
-  if (!words || words.some(word => word === undefined)) return [command];
-  const script = scripts.find(item => item && canonical(item) === canonical(words[0]!));
-  if (script) {
-    const root = folderOf(script);
-    return (words.slice(1) as string[]).map(word => /^Z:\\/i.test(word)
-      ? word.slice(2).split("\\").join("/") : `${root}/${word.split("\\").join("/")}`);
-  }
-  return words.length === 1 ? [words[0]!] : [command];
+  return words?.length === 1 && words[0] !== undefined ? [words[0]] : [command];
 }
+
+/** The Cheat Engine program a launcher command names, if any. */
+export const launcherCheatEngine = (command: string | undefined, ...scripts: string[]): string =>
+  launcherArguments(command, scripts)?.engine ?? "";
 
 /** The value written as `~/"..."` when it starts in the home directory. */
 function homeWord(value: string, home: string): string | undefined {
@@ -89,7 +114,7 @@ export const sharedByDefault = (folder: string) => SHARED_ROOTS.some(root => fol
  * anyway. No command removes it.
  *
  * The plugin's own entries are taken out first: folders the previous
- * command's programs needed, the launcher's folder, and folders inside the
+ * command's programs and Cheat Engine needed, the launcher's folder, and folders inside the
  * trainer `libraries` (only trainers live there; pass the library both as
  * configured and resolved). Every other entry stays, and an empty variable
  * is removed. A path in the owner's `home` is written as `~/...`.
@@ -113,7 +138,8 @@ export function setTrainerCommand(source: string, path?: string, folders?: strin
   }
   const needed = shared.filter(folder => !sharedByDefault(folder));
   const scripts = [owner.script ?? "", ...owner.scripts ?? []];
-  const previous = launcherPrograms(trainerCommand(source, owner.home), ...scripts)
+  const before = trainerCommand(source, owner.home);
+  const previous = [...launcherPrograms(before, ...scripts), launcherCheatEngine(before, ...scripts)]
     .filter(program => program.startsWith("/")).map(folderOf);
   for (const script of scripts) if (script) previous.push(folderOf(script));
   const ours = (folder: string) => !needed.includes(folder)

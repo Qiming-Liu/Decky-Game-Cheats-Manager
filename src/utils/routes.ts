@@ -1,6 +1,7 @@
 export const GAME_PAGE_ROUTE = "/game-cheats-manager/:appid";
 
 export const SETTINGS_ROUTE = "/game-cheats-manager-settings";
+export const ABOUT_ROUTE = "/game-cheats-manager-about";
 
 export const gamePageRoute = (appid: number | string) => `/game-cheats-manager/${appid}`;
 

@@ -2,21 +2,24 @@ import { FileSelectionType, openFilePicker } from "@decky/api";
 import { Focusable, Navigation, Spinner } from "@decky/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invalidateLibrary, useLibrary } from "../hooks/useLibrary";
-import { trackDownload, useDownloads } from "../hooks/useDownloads";
+import { dismissDownload, trackDownload, useDownloads } from "../hooks/useDownloads";
 import { useSettings } from "../hooks/useSettings";
 import { useTrainerLaunch } from "../hooks/useTrainerLaunch";
+import { isTableFile, launchableFiles, tableOnly } from "../domain/trainer";
+import { isTable } from "../domain/trainerCommand";
 import { cancelDownload, deleteTrainer, LINKED_ORIGIN, LocalTrainer, linkTrainer } from "../utils/backend";
+import { downloadCheatEngine } from "../hooks/useCheatEngine";
 import { bumperStep } from "../utils/bumpers";
 import { errorMessage, getLanguage, useTranslations } from "../utils/i18n";
-import { Button, Collapsible, colors, IconButton, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
+import { Badge, Button, Collapsible, colors, IconButton, jobStateLabel, PageHeader, Progress, Row, Status } from "./shell";
 import {
-  AlertCircleIcon, BackIcon, BumperGlyph,CheckCircleIcon, CheckIcon, ChevronUpIcon, TerminalIcon, WindowIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
-  StopIcon, TrashIcon, WarningIcon,
+  AlertCircleIcon, BackIcon, BumperGlyph,CheckCircleIcon, CheckIcon, ChevronUpIcon, TerminalIcon, WindowIcon, ChevronLeftIcon, ChevronRightIcon, CircleIcon, CrossIcon, DownloadIcon, FolderIcon, LinkIcon, SearchIcon, SquareIcon,
+  StopIcon, TableIcon, TrashIcon, WarningIcon,
 } from "./icons";
 import TrainerSearch from "./TrainerSearch";
 
 const PAGE_SIZE = 5;
-const programsOf = (trainer: LocalTrainer) => trainer.files.filter(file => /\.(exe|bat)$/i.test(file));
+const programsOf = launchableFiles;
 const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const small = { height: 36, padding: "0 14px", fontSize: 13 } as const;
 const pagerArrow = { width: 36, minWidth: 36, height: 36 } as const;
@@ -44,12 +47,17 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
   const t = useTranslations();
   const { library, loading, error } = useLibrary(appId, gameName);
   const jobs = useDownloads().filter(job => job.app_ids.includes(appId));
-  const settings = useSettings();
+  const settingsLoaded = useSettings() !== undefined;
   const launch = useTrainerLaunch(appId, library?.directory || "", library?.real_directory || "");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState<string>();
+  // The table to use once Cheat Engine, downloaded for it, is installed.
+  const [pendingTable, setPendingTable] = useState<string>();
+  const engine = launch.cheatEngine;
+  // Unknown status (still loading, or unreadable) offers nothing; choosing a table then reads it again.
+  const needsEngine = (trainer: LocalTrainer) => programsOf(trainer).some(isTableFile) && engine !== undefined && !engine.installed;
   const [cancelling, setCancelling] = useState(new Set<string>());
   const [page, setPage] = useState(0);
   // A short last page keeps the height of a full one so the pager never moves.
@@ -61,7 +69,8 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
     if (showingFullPage.current && height > fullHeight) setFullHeight(height);
   }, [page, library?.trainers?.length, jobs.length, searching, fullHeight]);
   const trainers = library?.trainers || [];
-  const activeJobs = jobs.filter(job => job.state !== "done");
+  // Running and failed downloads get a row; a cancelled one simply goes away.
+  const activeJobs = jobs.filter(job => job.state !== "done" && job.state !== "cancelled");
   const nameOf = (path: string) => trainers.find(trainer => {
     const prefix = trainer.path.endsWith("/") ? trainer.path : `${trainer.path}/`;
     return path === trainer.path || path.startsWith(prefix);
@@ -75,27 +84,55 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
   }
 
   // A trainer with several programs opens in place to list them; only one row is open at a time.
+  // A table without Cheat Engine opens in place too, offering to install it.
   function choose(trainer: LocalTrainer) {
     const programs = programsOf(trainer);
     if (!programs.length) { setMessage("executableRequired"); return; }
-    if (programs.length === 1) { void action(() => launch.select(trainer, programs[0])); return; }
+    if (programs.length === 1 && !needsEngine(trainer)) { void action(() => launch.select(trainer, programs[0])); return; }
     setOpen(open === trainer.id ? undefined : trainer.id);
+  }
+
+  /** Uses a table once Cheat Engine is there: directly, or by opening the row to pick one. */
+  function useTable(trainer: LocalTrainer) {
+    const programs = programsOf(trainer);
+    if (programs.length === 1) void action(() => launch.select(trainer, programs[0]));
+    else setOpen(trainer.id);
+  }
+
+  /** The in-place offer to install Cheat Engine for an opened table. */
+  function enginePanel(trainer: LocalTrainer) {
+    const download = () => action(async () => {
+      const job = await downloadCheatEngine();
+      if (job) trackDownload(job);
+      setPendingTable(trainer.id);
+      setOpen(undefined);
+    });
+    return <Focusable flow-children="row" style={{
+      display: "flex", alignItems: "center", gap: 12, margin: "0 14px 12px 48px", padding: "10px 10px 10px 12px", borderRadius: 4, background: "rgba(255,255,255,.1)",
+    }}>
+      <span style={{ display: "inline-flex", color: colors.warning }}><DownloadIcon size={18} width={2.2} /></span>
+      <span style={{ flex: "1 1 auto", minWidth: 0, fontSize: 14, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.ceNeedFirst}</span>
+      <Button style={{ ...small, minWidth: 96, background: "#dcdedf", color: "#0e141b" }} disabled={busy} onClick={() => { void download(); }}
+        onSecondaryButton={() => { void download(); }} onSecondaryActionDescription={t.ceDownloadUse}><Badge button="X" dark />{t.ceDownloadUse}</Button>
+    </Focusable>;
   }
 
   /** The programs of an opened trainer, each with its own action. */
   function programList(trainer: LocalTrainer) {
+    if (needsEngine(trainer)) return enginePanel(trainer);
     return <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 14px 12px 48px" }}>
       {programsOf(trainer).map(file => {
         const path = launch.programPath(trainer, file);
         const script = /\.bat$/i.test(file);
+        const table = isTableFile(file);
         return <Focusable key={file} flow-children="row" style={{
           display: "flex", alignItems: "center", gap: 12, padding: "8px 10px 8px 12px", borderRadius: 4,
           background: path && launch.multiple ? "rgba(26,159,255,.1)" : undefined,
         }}>
           {launch.multiple && (path ? <CheckedBox label={t.selected} /> : <SquareIcon size={20} color={colors.dim} />)}
-          <span style={{ display: "inline-flex", color: colors.muted }}>{script ? <TerminalIcon /> : <WindowIcon />}</span>
+          <span style={{ display: "inline-flex", color: colors.muted }}>{table ? <TableIcon /> : script ? <TerminalIcon /> : <WindowIcon />}</span>
           <span style={{ flex: "1 1 auto", minWidth: 0, fontSize: 14, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{file}</span>
-          <span style={{ fontSize: 12, color: colors.muted, whiteSpace: "nowrap" }}>{script ? t.kindScript : t.kindProgram}</span>
+          <span style={{ fontSize: 12, color: colors.muted, whiteSpace: "nowrap" }}>{table ? t.kindTable : script ? t.kindScript : t.kindProgram}</span>
           {launch.multiple
             ? <Button style={{ ...small, minWidth: 96 }} disabled={busy} onClick={() => {
                 void action(() => path ? launch.removeProgram(path) : launch.select(trainer, file));
@@ -109,27 +146,37 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
     </Focusable>;
   }
 
-  // A finished download is used automatically when the setting is on, replacing
+  // A finished download is used automatically, replacing
   // the trainer in use (or joining it when several may run). The job waits until
-  // the refreshed library lists it; each job is handled once per plugin load.
+  // the refreshed library lists it, and a table until Cheat Engine is installed
+  // too; each job is handled once per plugin load.
   useEffect(() => {
-    if (!settings?.auto_select || !launch.ready || busy) return;
+    if (!settingsLoaded || !launch.ready || busy) return;
     for (const job of jobs) {
       if (job.state !== "done" || !job.path || job.started_at < LOADED_AT || autoSelected.has(job.id)) continue;
       const trainer = trainers.find(item => item.path === job.path);
-      if (!trainer) continue;
+      // A table waits for a Cheat Engine that is known to be there.
+      if (!trainer || (programsOf(trainer).some(isTableFile) && !engine?.installed)) continue;
       autoSelected.add(job.id);
       const programs = programsOf(trainer);
       if (programs.length === 1 && launch.indexOf(trainer) < 0) void action(() => launch.select(trainer, programs[0]));
       else if (programs.length > 1) setOpen(trainer.id);
       return;
     }
-  }, [jobs, trainers, launch.ready, busy, settings?.auto_select]);
+  }, [jobs, trainers, launch.ready, busy, settingsLoaded, engine?.installed]);
+
+  // The table that asked for Cheat Engine is used as soon as it is installed.
+  useEffect(() => {
+    if (!pendingTable || !engine?.installed || !launch.ready || busy) return;
+    const trainer = trainers.find(item => item.id === pendingTable);
+    setPendingTable(undefined);
+    if (trainer) useTable(trainer);
+  }, [pendingTable, engine?.installed, launch.ready, busy, trainers]);
 
   async function pickLocalFile() {
     let source: string;
     try {
-      const picked = await openFilePicker(FileSelectionType.FILE, "/home", true, true, undefined, ["exe", "bat"]);
+      const picked = await openFilePicker(FileSelectionType.FILE, "/home", true, true, undefined, ["exe", "bat", "ct", "cetrainer"]);
       source = picked.realpath || picked.path;
     } catch { return; }
     await action(async () => {
@@ -175,22 +222,29 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
       const current = launch.indexOf(trainer) >= 0;
       const linked = trainer.origin === LINKED_ORIGIN;
       const programs = programsOf(trainer);
+      const tables = programs.filter(isTableFile);
       const icon = trainer.missing ? <WarningIcon size={20} color={colors.warning} />
         : multiple ? current ? <CheckedBox label={t.selected} /> : <SquareIcon size={20} color={colors.dim} />
         : current ? <CheckCircleIcon size={20} color={colors.accent} /> : linked ? <FolderIcon size={20} color={colors.dim} /> : <CircleIcon size={20} color={colors.dim} />;
+      const source = linked ? `${t.localSource} · ${trainer.path}`
+        : [t.originOnline, trainer.version, trainer.author, tables.length ? t.kindTable : ""].filter(Boolean).join(" · ");
       const description = trainer.missing ? <span style={{ color: colors.warning }}>{t.fileMissingDetail}</span>
-        : linked ? `${t.localSource} · ${trainer.path}`
-        : !programs.length ? t.tableUnsupported
-        : `${t.originOnline}${trainer.version ? ` · ${trainer.version}` : ""}`;
+        : !programs.length ? t.executableRequired
+        : needsEngine(trainer) ? <>{source} · <span style={{ color: colors.warning }}>{t.cheatEngineRequired}</span></>
+        : source;
       // Several programs: the row opens. One program: the row selects it, or
       // toggles it in and out when several trainers may run.
       const activate = trainer.missing ? undefined
-        : programs.length > 1 ? () => choose(trainer)
+        : programs.length > 1 || needsEngine(trainer) ? () => choose(trainer)
+        // A table whose Cheat Engine moved is chosen again to write the new place.
+        : current && tables.length && launch.engineState === "moved" && !multiple ? () => choose(trainer)
         : current ? multiple ? () => { void action(() => launch.unselect(trainer)); } : undefined
         : () => choose(trainer);
       if (open === trainer.id) {
+        const count = tableOnly(trainer) ? t.tableCount(programs.length)
+          : multiple ? t.programCountMultiple(programs.length) : t.programCount(programs.length);
         return <Row key={trainer.id} tall open icon={icon} title={trainer.name} titleColor={colors.text}
-          description={<span style={{ color: colors.accentText }}>{multiple ? t.programCountMultiple(programs.length) : t.programCount(programs.length)}</span>}
+          description={<span style={{ color: needsEngine(trainer) ? colors.warning : colors.accentText }}>{needsEngine(trainer) ? source : count}</span>}
           disabled={!launch.ready} onActivate={activate} footer={programList(trainer)}>
           <IconButton label={t.collapse} onClick={() => setOpen(undefined)}><ChevronUpIcon /></IconButton>
         </Row>;
@@ -216,6 +270,7 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
             setCancelling(previous => new Set(previous).add(job.id));
             trackDownload(result);
           }); }}>{cancelling.has(job.id) ? t.cancelling : t.cancel}</Button>}
+        {job.state === "error" && <IconButton label={t.close} onClick={() => dismissDownload(job.id)}><CrossIcon /></IconButton>}
       </Row>;
     }),
   ];
@@ -227,9 +282,12 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
   showingFullPage.current = pageRows.length === PAGE_SIZE;
   const count = launch.selected.length;
   const separator = getLanguage().startsWith("zh") ? "，" : ", ";
-  // Red warnings stay at the top: a broken Proton, or a trainer in use whose file is gone.
+  // Red warnings stay at the top: a broken Proton, a trainer in use whose file
+  // is gone, or a table in use whose Cheat Engine is.
   const alerts = [
     unsupportedTool && t.compatWarnShort(unsupportedTool),
+    launch.engineState === "missing" && t.tableEngineMissing,
+    launch.engineState === "moved" && t.tableEngineMoved,
     trainers.some(trainer => trainer.missing && launch.indexOf(trainer) >= 0) && t.selectedFileMissing,
   ].filter((text): text is string => Boolean(text));
   const warned = alerts.length > 0;
@@ -260,9 +318,12 @@ export default function Modifiers({ appId, gameName, unsupportedTool = "" }: { a
           {count > 1 && <span style={{ flex: "0 0 auto", fontSize: 14, fontWeight: 400, color: colors.accentText }}>{t.moreCount(count)}</span>}
         </div>
         <div style={{ fontSize: 12, color: colors.muted }}>
-          <span style={{ color: colors.accentText }}>{t.runsWithGame}</span> · {t.switchWindowHint}</div>
+          <span style={{ color: colors.accentText }}>{t.runsWithGame}</span>
+          {launch.selected.some(isTable) && ` · ${t.viaCheatEngine(engine?.version || "")}`} · {t.switchWindowHint}</div>
       </div>
-      <Button disabled={busy} onClick={() => { void action(launch.clear); }}><StopIcon size={14} />{count > 1 ? t.stopAll : t.stopUsing}</Button>
+      <Button disabled={busy} onClick={() => { void action(launch.clear); }}
+        onOptionsButton={() => { if (!busy) void action(launch.clear); }} onOptionsActionDescription={count > 1 ? t.stopAll : t.stopUsing}>
+        <StopIcon size={14} />{count > 1 ? t.stopAll : t.stopUsing}<Badge button="Y" /></Button>
     </Focusable>}
     {/* Joined under the in-use card, or on their own. */}
     {warned && <div role="alert" style={{

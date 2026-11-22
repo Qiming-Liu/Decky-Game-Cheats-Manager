@@ -55,6 +55,7 @@ class ReleasePackageTest(unittest.TestCase):
             (root / "gcm/LICENSE.txt").write_text("license")
             (root / "db/catalog.json").write_text("{}")
             (root / "bin/gcm-start.exe").write_bytes(b"MZ")
+            (root / "bin/gcm-pipewait.dll").write_bytes(b"MZ")
             output = Path(temporary) / "release.zip"
             def javascript(args, **kwargs):
                 Path(args[-1]).write_text("export default {};\n")
@@ -66,6 +67,7 @@ class ReleasePackageTest(unittest.TestCase):
                 self.assertIn("DeckyGCM/py_modules/_gcm_core/auth.pyc", names)
                 self.assertIn("DeckyGCM/package.json", names)
                 self.assertIn("DeckyGCM/bin/gcm-start.exe", names)
+                self.assertIn("DeckyGCM/bin/gcm-pipewait.dll", names)
                 self.assertEqual([name for name in names if name.endswith(".py")], ["DeckyGCM/main.py"])
                 self.assertFalse(any("secret_config" in name or name.endswith(".map") for name in names))
                 metadata = json.loads(archive.read("DeckyGCM/plugin.json"))

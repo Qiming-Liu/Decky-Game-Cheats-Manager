@@ -14,7 +14,7 @@ def migrate(source: Path, target: Path, save):
     children = [p for p in children if not p.name.startswith((".gcm-download-", ".gcm-import-", ".gcm-migrate-"))]
     # The launcher's files stay, so launch options naming them keep working;
     # the launcher writes its own copy into the new folder.
-    children = [p for p in children if p.name not in (".gcm.bat", ".gcm-start.exe", ".gcm-launch.log")]
+    children = [p for p in children if p.name not in (".gcm.bat", ".gcm-start.exe", ".gcm-pipewait.dll", ".gcm-launch.log")]
     if any(os.path.lexists(target / p.name) for p in children):
         raise ValueError("library_conflict")
     published = []

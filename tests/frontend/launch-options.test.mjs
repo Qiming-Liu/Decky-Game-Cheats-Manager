@@ -335,3 +335,28 @@ test("library programs are passed relative to the launcher and the home director
     .startsWith(String.raw`PROTON_REMOTE_DEBUG_CMD="/run/media/deck/SD/GCM/.gcm.bat 'A\a.exe'"`));
   assert.throws(() => launcherCommand(script, [String.raw`/home/deck/back\slash.exe`]), /valid/);
 });
+
+test("tables are launched through Cheat Engine, named once before the programs", () => {
+  const { launcherCommand, launcherPrograms, launcherCheatEngine, setTrainerCommand, trainerCommand, isTable } = loadDomain();
+  const script = "/home/deck/DeckyGCM/.gcm.bat";
+  const engine = "/home/deck/DeckyGCM/Cheat Engine 7.5 [1]/Cheat Engine.exe";
+  const table = "/home/deck/DeckyGCM/[CT] Elden Ring [2]/EldenRing.CT";
+  assert.equal(isTable(table), true);
+  assert.equal(isTable("/home/deck/Trainer.exe"), false);
+  assert.throws(() => launcherCommand(script, [table]), /cheat_engine_missing/);
+  const command = launcherCommand(script, [table, "/home/deck/Trainer.exe"], engine);
+  assert.ok(command.startsWith(String.raw`${script} --ce 'Cheat Engine 7.5 [1]\Cheat Engine.exe' `), command);
+  assert.deepEqual([...launcherPrograms(command, script)], [table, "/home/deck/Trainer.exe"]);
+  assert.equal(launcherCheatEngine(command, script), engine);
+  // Programs alone never name Cheat Engine, even when it is installed.
+  const plain = launcherCommand(script, ["/home/deck/Trainer.exe"], engine);
+  assert.ok(!plain.includes("--ce"), plain);
+  assert.equal(launcherCheatEngine(plain, script), "");
+  // A Cheat Engine folder the container does not share is shared, and taken out with the table.
+  const outside = "/data/CE/Cheat Engine.exe";
+  const value = setTrainerCommand("", launcherCommand(script, [table], outside), ["/home/deck/DeckyGCM", "/data/CE"], { script });
+  assert.ok(value.startsWith("PRESSURE_VESSEL_FILESYSTEMS_RW=/data/CE "), value);
+  assert.equal(launcherCheatEngine(trainerCommand(value), script), outside);
+  const next = setTrainerCommand(value, launcherCommand(script, ["/home/deck/Trainer.exe"]), ["/home/deck"], { script });
+  assert.ok(!next.includes("PRESSURE_VESSEL_FILESYSTEMS_RW"), next);
+});

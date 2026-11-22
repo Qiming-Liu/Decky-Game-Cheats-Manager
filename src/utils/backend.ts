@@ -21,8 +21,9 @@ export interface TrainerResult {
   game_name: string;
   origin: string;
   version: string;
-  /** False for Cheat Tables, which are listed but cannot be downloaded yet. */
-  supported?: boolean;
+  author?: string;
+  /** A Cheat Engine table, opened through Cheat Engine. */
+  table?: boolean;
 }
 
 export interface SearchResponse {
@@ -69,6 +70,7 @@ export interface LocalTrainer {
   app_ids: string[];
   version: string;
   origin: string;
+  author?: string;
   /** Linked local file that no longer exists. */
   missing?: boolean;
 }
@@ -96,7 +98,9 @@ export interface DatabaseState extends DatabaseStatus {
 }
 export const getLibrarySettings = callable<[], { directory: string; database: DatabaseState }>("get_library_settings");
 
-export interface PluginSettings { allow_multiple: boolean; auto_select: boolean; launch_delay: number; skip_launcher_check: boolean }
+export interface PluginSettings {
+  allow_multiple: boolean; auto_attach: boolean; launch_delay: number; skip_launcher_check: boolean;
+}
 export const LAUNCH_DELAYS = [0, 5, 10, 15, 30, 60] as const;
 export const getSettings = callable<[], PluginSettings>("get_settings");
 const setSettingsCall = callable<[changes: Partial<PluginSettings>], { success: boolean; error?: string; settings?: PluginSettings }>("set_settings");
@@ -126,9 +130,66 @@ export async function getLauncher(): Promise<Launcher> {
   return { path: result.path, legacy: result.legacy ?? [], home: result.home ?? "" };
 }
 
+/** The game's own window and whether a trainer's window is on screen instead (X window IDs, 0 for none). */
+export const getGameWindow = callable<[app_id: string, programs: string[]],
+  { success: boolean; error?: string; game?: number; focused?: number; trainer_in_front?: boolean }>("get_game_window");
+
 /** Records in the log how the game's trainers started, once the starter has followed them. */
 export const checkTrainerLaunch = callable<[app_id: string, programs: string[], compat_tool: string], { success: boolean; error?: string }>(
   "check_trainer_launch");
+
+export interface CheatEngineStatus {
+  installed: boolean;
+  /** The Cheat Engine.exe path. */
+  path: string;
+  folder: string;
+  version: string;
+  /** The plugin's autorun script is in place. */
+  bridge: boolean;
+}
+export const getCheatEngine = callable<[], CheatEngineStatus>("get_cheat_engine");
+const manageCheatEngineCall = callable<[action: string],
+  { success: boolean; error?: string; job?: DownloadJob; cheat_engine?: CheatEngineStatus }>("manage_cheat_engine");
+/** "download" does nothing when Cheat Engine is installed; "reinstall" downloads it again in its place. */
+export async function manageCheatEngine(action: "download" | "reinstall" | "delete" | "bridge") {
+  const result = await manageCheatEngineCall(action);
+  if (!result.success) throw new Error(result.error || "unknownError");
+  return result;
+}
+
+export interface TableEntry {
+  id: number;
+  desc: string;
+  group: boolean;
+  /** Set by the table reader for notes and headings with no writable value. */
+  displayOnly?: boolean;
+  active: boolean;
+  /** "script" for Auto Assembler entries, else the value type. */
+  type: string;
+  value?: string;
+  options?: { value: string; label: string }[];
+  error: string;
+  children: TableEntry[];
+}
+export interface TableState {
+  table: string;
+  attached: string;
+  pid: number;
+  last_n: number;
+  entries: TableEntry[];
+  /** Seconds since Cheat Engine last wrote the state. */
+  age: number;
+}
+export const getTable = callable<[path: string], { success: boolean; error?: string; table?: string; entries?: TableEntry[] }>("get_table");
+export const tableSession = callable<[action: "start" | "stop", table: string, app_id: string],
+  { success: boolean; error?: string }>("table_session");
+/** A process in Cheat Engine's own list (inside Proton): Windows process ID and name. */
+export interface GameProcess { pid: number; name: string; window: boolean; launched: boolean; memory: number }
+export const getGameProcesses = callable<[app_id: string, programs: string[], table: string],
+  { success: boolean; error?: string; processes?: GameProcess[] }>("get_game_processes");
+export const attachTable = callable<[table: string, pid: number, name: string], { success: boolean; error?: string; n?: number }>("attach_table");
+export const getTableState = callable<[table: string], { success: boolean; error?: string; state?: TableState | null }>("get_table_state");
+export const sendTableCommand = callable<[table: string, command: Record<string, unknown>], { success: boolean; error?: string; n?: number }>("send_table_command");
 
 export interface LogLine { time: string; level: string; message: string }
 /** The newest log entries, oldest first. */

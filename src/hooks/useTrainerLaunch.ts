@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { getLauncher, Launcher, LocalTrainer, logFrontend, logUserAction, trainerExecutable } from "../utils/backend";
-import { launcherCommand, launcherPrograms, setTrainerCommand, trainerCommand } from "../domain/trainerCommand";
+import {
+  isTable, launcherCheatEngine, launcherCommand, launcherPrograms, samePath, setTrainerCommand, trainerCommand,
+} from "../domain/trainerCommand";
+import { readCheatEngine, useCheatEngine } from "./useCheatEngine";
 import { useLaunchOptions } from "./useLaunchOptions";
 import { useSettings } from "./useSettings";
 
@@ -15,6 +18,7 @@ const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 export function useTrainerLaunch(appId: string, directory: string, realDirectory = "") {
   const { options, error, refresh, update } = useLaunchOptions(appId);
   const settings = useSettings();
+  const engine = useCheatEngine();
   const [launcher, setLauncher] = useState<Launcher>();
   const [scriptError, setScriptError] = useState("");
   // Fetching the script also rewrites it for the current settings.
@@ -35,17 +39,34 @@ export function useTrainerLaunch(appId: string, directory: string, realDirectory
   const command = options === undefined || launcher === undefined ? undefined : trainerCommand(options, launcher.home);
   const selected = options === undefined || launcher === undefined ? undefined : launcherPrograms(command, launcher.path, ...launcher.legacy);
   const multiple = Boolean(settings?.allow_multiple);
+  // The launch options name the Cheat Engine a table opens with. Once that one
+  // is deleted or replaced the table no longer opens, until it is chosen again.
+  const written = launcher === undefined ? "" : launcherCheatEngine(command, launcher.path, ...launcher.legacy);
+  const engineState: "" | "missing" | "moved" = !selected?.some(isTable) || engine === undefined ? ""
+    : !engine.installed ? "missing" : samePath(engine.path, written) ? "" : "moved";
 
-  /** Writes the selection; `action` is what the user did, for the log. */
+  /**
+   * Writes the selection; `action` is what the user did, for the log. Tables
+   * open through Cheat Engine, whose folder the game must see as well.
+   */
   async function save(programs: string[], action: string) {
-    if (script === undefined || launcher === undefined) {
-      const error = new Error("optionsNotLoaded");
+    let cheatEngine = "";
+    let missing = script === undefined || launcher === undefined ? "optionsNotLoaded" : "";
+    if (!missing && programs.some(isTable)) {
+      // The status is read now if it has not arrived yet; programs never wait for it.
+      try { cheatEngine = (engine ?? await readCheatEngine()).path; }
+      catch (error) { logUserAction(`${action} for app ${appId}`, error); throw error; }
+      if (!cheatEngine) missing = "cheat_engine_missing";
+    }
+    if (script === undefined || launcher === undefined || missing) {
+      const error = new Error(missing);
       logUserAction(`${action} for app ${appId}`, error);
       throw error;
     }
     const owner = { script, scripts: launcher.legacy, libraries: [directory, realDirectory].filter(Boolean), home: launcher.home };
+    const folders = [folderOf(script), ...(cheatEngine ? [folderOf(cheatEngine)] : []), ...programs.map(folderOf)];
     await update(current => programs.length
-      ? setTrainerCommand(current, launcherCommand(script, programs), [folderOf(script), ...new Set(programs.map(folderOf))], owner)
+      ? setTrainerCommand(current, launcherCommand(script, programs, cheatEngine), [...new Set(folders)], owner)
       : setTrainerCommand(current, undefined, undefined, owner), action);
   }
   /** Adds a program, or replaces the selection when only one may run. */
@@ -73,7 +94,12 @@ export function useTrainerLaunch(appId: string, directory: string, realDirectory
     return (multiple ? selected : selected?.slice(0, 1))?.find(item => item === target || (item === trainer.path && trainer.path.endsWith(`/${filename}`)));
   }
   return {
-    ready: selected !== undefined, error: error || scriptError, selected: (multiple ? selected : selected?.slice(0, 1)) || [], multiple, refresh,
+    ready: selected !== undefined, error: error || scriptError,
+    selected: (multiple ? selected : selected?.slice(0, 1)) || [], multiple, refresh,
+    /** Cheat Engine, which only tables need; undefined until known. */
+    cheatEngine: engine,
+    /** Why a selected table will not open: its Cheat Engine is gone, or is not the one in use any more. */
+    engineState,
     select,
     use: (path: string) => add(path),
     unselect: (trainer: LocalTrainer) => save((selected || []).filter(item => !inside(trainer, item)), `Unselect trainer "${trainer.name}"`),

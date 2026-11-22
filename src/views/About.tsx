@@ -10,7 +10,7 @@ import { publishSettings } from "../hooks/useSettings";
 import { REPOSITORY_URL, useUpdate } from "../hooks/useUpdate";
 import { getSystemName, resetSettings } from "../utils/backend";
 import { errorMessage, getLanguage, useTranslations } from "../utils/i18n";
-import { Button, colors, IconButton, Row, SectionTitle } from "./shell";
+import { Button, colors, IconButton, Row, SectionTitle, StandalonePage } from "./shell";
 import { ChevronRightIcon } from "./icons";
 import LogPanel from "./LogPanel";
 import { openExternal, VersionBadge } from "./update";
@@ -22,12 +22,11 @@ const GCM_URL = "https://gamezonelabs.com/products/gcm";
 const CREAMDECK_URL = "https://gitlab.com/alan-liu/CreamDeck#creamdeck";
 
 /** A new GitLab issue with the details a report needs already filled in. */
-export function feedbackUrl(details: { version: string; system: string; compatTool: string; appId: string }) {
+export function feedbackUrl(details: { version: string; system: string; compatTool: string; appId?: string }) {
   const body = [
     `**Version:** ${details.version || "?"}`,
     `**System:** ${details.system || "?"}`,
-    `**Proton:** ${details.compatTool || "?"}`,
-    `**AppID:** ${details.appId}`,
+    ...(details.appId ? [`**Proton:** ${details.compatTool || "?"}`, `**AppID:** ${details.appId}`] : []),
     "",
     "**What happened:**",
     "",
@@ -83,12 +82,8 @@ function FeedbackModal({ url, closeModal }: { url: string; closeModal?: () => vo
   </ModalRoot>;
 }
 
-export default function About({ appId, compatTool }: { appId: string; compatTool: string }) {
+function GameReset({ appId }: { appId: string }) {
   const t = useTranslations();
-  const { current, latest } = useUpdate();
-  const [system, setSystem] = useState("");
-  useEffect(() => { void getSystemName().then(name => setSystem(name || "")).catch(() => {}); }, []);
-  const feedback = feedbackUrl({ version: current, system, compatTool, appId });
   const launch = useLaunchOptions(appId);
   // Reset asks for a second press instead of a dialog.
   const [reset, setReset] = useState<"idle" | "confirm" | "busy" | "done">("idle");
@@ -110,6 +105,32 @@ export default function About({ appId, compatTool }: { appId: string; compatTool
     }
   };
 
+  return <div style={{ borderBottom: `1px solid ${colors.line}` }}>
+    <Row dense title={t.reset} description={resetError || (reset === "done" ? t.resetDone : t.resetHint)}
+      titleColor={reset === "confirm" ? colors.danger : undefined}>
+      <Button disabled={reset === "busy" || launch.options === undefined} onClick={() => void runReset()}
+        style={reset === "confirm" ? { background: colors.danger, color: "#fff" } : undefined}>
+        {reset === "confirm" ? t.resetConfirm : t.reset}
+      </Button>
+    </Row>
+  </div>;
+}
+
+export function PluginAboutPage() {
+  const t = useTranslations();
+  return <StandalonePage title={t.aboutPlugin}>
+    <Focusable flow-children="column" style={{ minHeight: 0, overflowY: "auto" }}>
+      <About />
+    </Focusable>
+  </StandalonePage>;
+}
+
+export default function About({ appId, compatTool = "" }: { appId?: string; compatTool?: string }) {
+  const t = useTranslations();
+  const { current, latest } = useUpdate();
+  const [system, setSystem] = useState("");
+  useEffect(() => { void getSystemName().then(name => setSystem(name || "")).catch(() => {}); }, []);
+  const feedback = feedbackUrl({ version: current, system, compatTool, appId });
   const linkButton = { background: colors.button, color: colors.text };
   return <div style={{ padding: "0 8px 16px 0" }}>
     {/* One row of columns, so right from the author links reaches the right column. */}
@@ -127,15 +148,7 @@ export default function About({ appId, compatTool }: { appId: string; compatTool
         <Row dense title={t.feedback} description={t.feedbackHint}>
           <Button onClick={() => showModal(<FeedbackModal url={feedback} />)}><GitlabIcon />{t.feedbackIssue}</Button>
         </Row>
-        <div style={{ borderBottom: `1px solid ${colors.line}` }}>
-          <Row dense title={t.reset} description={resetError || (reset === "done" ? t.resetDone : t.resetHint)}
-            titleColor={reset === "confirm" ? colors.danger : undefined}>
-            <Button disabled={reset === "busy" || launch.options === undefined} onClick={() => void runReset()}
-              style={reset === "confirm" ? { background: colors.danger, color: "#fff" } : undefined}>
-              {reset === "confirm" ? t.resetConfirm : t.reset}
-            </Button>
-          </Row>
-        </div>
+        {appId && <GameReset appId={appId} />}
         <SectionTitle top={6}>{t.thanks}</SectionTitle>
         <div style={{ borderBottom: `1px solid ${colors.line}` }}>
           <LinkRow title="Game Cheats Manager" note="dyang886" url={GCM_URL} />

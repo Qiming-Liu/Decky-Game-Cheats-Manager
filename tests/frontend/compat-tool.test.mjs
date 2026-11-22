@@ -20,6 +20,12 @@ test("builds bundling Wine Mono 11.2.0 are unsupported", () => {
   }
 });
 
+test("Steam Linux Runtime runs no Proton and is unsupported", () => {
+  for (const name of ["Steam Linux Runtime 1.0", "Steam Linux Runtime 3.0", "Steam Linux Runtime 1.0 (scout)"]) {
+    assert.equal(isCompatToolUnsupported(name), true, name);
+  }
+});
+
 test("builds with another Wine Mono stay supported", () => {
   for (const name of ["Proton 10.0-4", "Proton 11.0-1", "Proton 11.0-1b", "Proton Experimental", "GE-Proton11-1",
     "GE-Proton11-7", "GE-Proton11-12", "GE-Proton10-30", "Proton-CachyOS 11.0-20260602", "Proton-CachyOS 11.0-20261005", "", null, undefined]) {

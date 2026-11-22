@@ -1,13 +1,17 @@
 import { FileSelectionType, openFilePicker } from "@decky/api";
-import { Dropdown, Focusable, Navigation, Toggle } from "@decky/ui";
+import { Dropdown, Focusable, Toggle } from "@decky/ui";
 import { ReactNode, useEffect, useState } from "react";
 import { changeSettings, useSettings } from "../hooks/useSettings";
+import { changeCheatEngine, downloadCheatEngine, useCheatEngine } from "../hooks/useCheatEngine";
+import { trackDownload, useDownloads } from "../hooks/useDownloads";
 import { invalidateLibrary } from "../hooks/useLibrary";
-import { DatabaseState, getLibrarySettings, LAUNCH_DELAYS, logFrontend, refreshDatabase, setLibraryDirectory } from "../utils/backend";
+import {
+  DatabaseState, getLibrarySettings, LAUNCH_DELAYS, logFrontend, refreshDatabase, setLibraryDirectory,
+} from "../utils/backend";
 import { errorKey, errorMessage, useTranslations } from "../utils/i18n";
 import { Translations } from "../utils/locales";
-import { Button, colors, IconButton, mono, PageStyle, Row, SectionTitle, Status } from "./shell";
-import { BackIcon } from "./icons";
+import { Button, colors, IconButton, jobStateLabel, mono, PageHeader, Row, SectionTitle, StandalonePage, Status } from "./shell";
+import { TrashIcon } from "./icons";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const formatTime = (seconds: number) => {
@@ -40,10 +44,13 @@ function Card({ label, children, hint, action }: { label: string; children: Reac
 
 const dot = (color: string) => <span aria-hidden style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: color }} />;
 
-/** The full-page settings shared by every game, opened from the Quick Access panel. */
-export default function AdvancedSettings() {
+/** Global settings opened from the Quick Access panel or a game's plugin page. */
+export default function AdvancedSettings({ embedded = false }: { embedded?: boolean }) {
   const t = useTranslations();
   const settings = useSettings();
+  const engine = useCheatEngine();
+  // Cheat Engine downloads belong to no game: they are the jobs without one.
+  const engineJob = useDownloads().find(job => !job.app_ids.length && ["queued", "downloading", "extracting"].includes(job.state));
   const [directory, setDirectory] = useState("");
   const [database, setDatabase] = useState<DatabaseState>();
   const [busy, setBusy] = useState(false);
@@ -80,6 +87,15 @@ export default function AdvancedSettings() {
     void run(async () => { await refreshDatabase(); await loadStorage(); });
   }
   const change = (changes: Parameters<typeof changeSettings>[0]) => { void run(() => changeSettings(changes)); };
+  const downloadEngine = (reinstall = false) => run(async () => {
+    const job = await downloadCheatEngine(reinstall);
+    if (job) trackDownload(job);
+  });
+  const percent = engineJob ? engineJob.state === "extracting" ? 100 : engineJob.total ? Math.floor(engineJob.downloaded / engineJob.total * 100) : 0 : 0;
+  const engineDescription = engineJob ? <span style={{ color: colors.accentText }}>{jobStateLabel(t, engineJob, percent)}</span>
+    : !engine ? t.loading
+    : engine.installed ? <span style={mono}>{engine.folder}</span>
+    : t.ceSharedHint;
 
   const updatedAt = Math.max(0, ...Object.values(database?.files || {}).filter((value): value is number =>
     typeof value === "number" && Number.isFinite(value)));
@@ -96,18 +112,7 @@ export default function AdvancedSettings() {
       action={<Button style={cardButton} disabled={busy} onClick={updateDatabase}>{t.updateNow}</Button>}>
       <div style={statusLine}>{dot(database.ready ? "#59bf40" : colors.warning)}{database.ready ? t.catalogReady : t.catalogMissing}</div></Card>;
 
-  return <div className="gcm-font" style={{
-    // Clear of Steam's status bar on top and button hints below; the rest of
-    // the spacing shrinks with the screen so everything stays visible.
-    position: "absolute", inset: 0, boxSizing: "border-box", overflow: "hidden",
-    padding: "clamp(48px, 8.5vh, 68px) clamp(24px, 4vw, 48px) clamp(52px, 8vh, 64px)",
-    background: "linear-gradient(180deg, #0e141b 0%, #151c24 100%)", color: "#dcdedf", display: "flex", flexDirection: "column", gap: "clamp(8px, 2.2vh, 18px)",
-  }}>
-    <PageStyle />
-    <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <IconButton label={t.back} style={{ background: colors.button, color: colors.text }} onClick={() => Navigation.NavigateBack()}><BackIcon /></IconButton>
-      <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: colors.text }}>{t.advancedSettings}</h1>
-    </Focusable>
+  const content = <>
     <Status message={message ? errorMessage(message, t) : undefined} />
 
     <Focusable flow-children="row" style={{ flex: "1 1 auto", minHeight: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "clamp(20px, 3vw, 32px)" }}>
@@ -116,9 +121,6 @@ export default function AdvancedSettings() {
         <SectionTitle first>{t.tabModifiers}</SectionTitle>
         <Row dense title={t.allowMultiple} description={t.allowMultipleHint}>
           <Toggle value={Boolean(settings?.allow_multiple)} disabled={busy || !settings} onChange={value => change({ allow_multiple: value })} />
-        </Row>
-        <Row dense title={t.autoSelect} description={t.autoSelectHint}>
-          <Toggle value={Boolean(settings?.auto_select)} disabled={busy || !settings} onChange={value => change({ auto_select: value })} />
         </Row>
         <Row dense title={t.launchDelay} description={t.launchDelayHint}>
           <div style={{ minWidth: 140 }}><Dropdown disabled={busy || !settings} selectedOption={settings?.launch_delay ?? 0}
@@ -129,11 +131,27 @@ export default function AdvancedSettings() {
           <Toggle value={Boolean(settings?.skip_launcher_check)} disabled={busy || !settings} onChange={value => change({ skip_launcher_check: value })} />
         </Row>
         <div style={{ borderTop: `1px solid ${colors.line}` }} />
+
+        <SectionTitle>{t.ceTitle}</SectionTitle>
+        <Row dense highlight={Boolean(engine?.installed)} description={engineDescription}
+          title={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {dot(engine?.installed ? "#59bf40" : colors.dim)}{engine?.installed ? t.ceInstalled(engine.version) : t.ceNotInstalled}</span>}>
+          {engine?.installed
+            ? <>
+              <Button style={smallButton} disabled={busy || Boolean(engineJob)} onClick={() => { void downloadEngine(true); }}>{t.ceReinstall}</Button>
+              <IconButton tone="danger" label={t.delete} disabled={busy} onClick={() => { void run(() => changeCheatEngine("delete")); }}><TrashIcon /></IconButton>
+            </>
+            : <Button style={smallButton} disabled={busy || Boolean(engineJob)} onClick={() => { void downloadEngine(); }}>{t.download}</Button>}
+        </Row>
+        <Row dense title={t.autoAttach} description={t.autoAttachHint}>
+          <Toggle value={Boolean(settings?.auto_attach)} disabled={busy || !settings} onChange={value => change({ auto_attach: value })} />
+        </Row>
+        <div style={{ borderTop: `1px solid ${colors.line}` }} />
       </Focusable>
 
       <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflowY: "auto" }}>
         <SectionTitle first>{t.storage}</SectionTitle>
-        <Focusable flow-children="row" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
+        <Focusable flow-children={embedded ? "column" : "row"} style={{ display: "grid", gridTemplateColumns: embedded ? "minmax(0, 1fr)" : "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
           <Card label={t.folder} hint={t.pathMoveHint}
             action={<Button style={cardButton} disabled={busy || !directory} onClick={() => { void chooseFolder(); }}>{t.changePath}</Button>}>
             <div style={{ ...mono, fontSize: 13, color: colors.text, lineHeight: 1.45 }}>{directory || t.loading}</div>
@@ -142,8 +160,13 @@ export default function AdvancedSettings() {
         </Focusable>
       </Focusable>
     </Focusable>
-  </div>;
+  </>;
+  return embedded ? <div style={{ padding: "0 8px 16px 0" }}>
+    <PageHeader title={t.advancedSettings} />
+    {content}
+  </div> : <StandalonePage title={t.advancedSettings}>{content}</StandalonePage>;
 }
 
 const cardButton = { width: "100%", height: 36, fontSize: 13 } as const;
+const smallButton = { height: 36, padding: "0 14px", fontSize: 13 } as const;
 const statusLine = { display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: colors.text } as const;

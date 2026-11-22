@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sys
 import tempfile
@@ -11,6 +12,29 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "py_modules"))
+MACHINE_ID_VARIABLE = "GCM_BUILD_MACHINE_ID"
+
+
+def _build_machine_id():
+    """Machine ID for hosts without /etc/machine-id (Windows), from the environment or ignored .env."""
+    value = os.environ.get(MACHINE_ID_VARIABLE, "").strip()
+    env_file = ROOT / ".env"
+    if not value and env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            key, _, rest = line.partition("=")
+            if key.strip() == MACHINE_ID_VARIABLE:
+                value = rest.strip().strip("'\"")
+    return value
+
+
+def _use_build_machine_id(temporary):
+    value = _build_machine_id()
+    if not value:
+        return
+    path = Path(temporary) / "machine-id"
+    path.write_text(value + "\n", encoding="ascii")
+    import gcm_auth_platform
+    gcm_auth_platform.MACHINE_ID_PATHS = (str(path),)
 
 
 def main():
@@ -23,6 +47,7 @@ def main():
         )
         import gcm_bridge
         gcm_bridge.ensure_paths()
+        _use_build_machine_id(temporary)
         import trainer_db
 
         result = trainer_db.refresh()

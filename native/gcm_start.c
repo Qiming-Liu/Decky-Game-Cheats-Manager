@@ -12,11 +12,21 @@
  * follows the program for up to WATCH_SECONDS and records whether it opened a
  * window or exited, so the next program on the launcher's list starts at once.
  *
- * Usage: gcm-start.exe "C:\path\to\trainer.exe"
+ * A 64-bit program that imports WaitNamedPipeW also gets .gcm-pipewait.dll
+ * (beside this program) loaded. It lengthens short pipe waits, without which
+ * FLiNG trainers give up on their own window where it starts slowly. For
+ * FEX on ARM it also retries code writes that read-only code pages refuse,
+ * opens the game so that FEX hears of the memory a cheat allocates, and
+ * finds free memory near the game's code in far fewer steps.
+ *
+ * A second argument is passed on to the program: the table Cheat Engine opens.
+ *
+ * Usage: gcm-start.exe "C:\path\to\trainer.exe" ["C:\path\to\table.ct"]
  *        gcm-start.exe --watch PID "C:\path\to\trainer.exe"   (started by itself)
  * Exit code: 0 when the program started, 1 otherwise.
  */
 #include <windows.h>
+#include <psapi.h>
 #include <shellapi.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -24,6 +34,8 @@
 
 #define PROCESS_WINE_MAKE_PROCESS_SYSTEM 1000
 #define LOG_NAME L".gcm-launch.log"
+#define PIPE_WAIT_NAME L".gcm-pipewait.dll"
+#define HOOK_ATTEMPTS 5
 /* The plugin empties the log after reading it; this only bounds a log nobody reads. */
 #define LOG_LIMIT (256 * 1024)
 #define WATCH_SECONDS 30
@@ -120,6 +132,117 @@ static const WCHAR *file_name(const WCHAR *path)
     return name;
 }
 
+/* Reads `size` bytes at file offset `offset`; FALSE when the file is shorter. */
+static BOOL read_at(HANDLE file, DWORD offset, void *buffer, DWORD size)
+{
+    OVERLAPPED at;
+    ZeroMemory(&at, sizeof(at));
+    at.Offset = offset;
+    DWORD read = 0;
+    return ReadFile(file, buffer, size, &read, &at) && read == size;
+}
+
+/* File offset of an address in the loaded image, or 0 outside every section. */
+static DWORD file_offset(const IMAGE_SECTION_HEADER *sections, WORD count, DWORD rva)
+{
+    for (WORD i = 0; i < count; i++) {
+        DWORD size = max(sections[i].Misc.VirtualSize, sections[i].SizeOfRawData);
+        if (rva >= sections[i].VirtualAddress && rva - sections[i].VirtualAddress < size)
+            return rva - sections[i].VirtualAddress + sections[i].PointerToRawData;
+    }
+    return 0;
+}
+
+/* True for a 64-bit program whose own imports name WaitNamedPipeW. */
+static BOOL waits_for_pipes(const WCHAR *path)
+{
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+    if (file == INVALID_HANDLE_VALUE) return FALSE;
+    BOOL found = FALSE;
+    IMAGE_DOS_HEADER dos;
+    IMAGE_NT_HEADERS64 nt;
+    if (!read_at(file, 0, &dos, sizeof(dos)) || dos.e_magic != IMAGE_DOS_SIGNATURE
+        || !read_at(file, dos.e_lfanew, &nt, sizeof(nt)) || nt.Signature != IMAGE_NT_SIGNATURE
+        || nt.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 || nt.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+        goto done;
+    WORD count = nt.FileHeader.NumberOfSections;
+    if (count == 0 || count > 96) goto done;
+    IMAGE_SECTION_HEADER sections[96];
+    DWORD table = dos.e_lfanew + FIELD_OFFSET(IMAGE_NT_HEADERS64, OptionalHeader) + nt.FileHeader.SizeOfOptionalHeader;
+    if (!read_at(file, table, sections, count * sizeof(IMAGE_SECTION_HEADER))) goto done;
+    DWORD imports = file_offset(sections, count, nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+    for (DWORD entry_index = 0; imports && entry_index < 256 && !found; entry_index++) {
+        IMAGE_IMPORT_DESCRIPTOR entry;
+        if (!read_at(file, imports + entry_index * sizeof(entry), &entry, sizeof(entry)) || !entry.Name) break;
+        DWORD thunks = file_offset(sections, count, entry.OriginalFirstThunk ? entry.OriginalFirstThunk : entry.FirstThunk);
+        for (DWORD index = 0; thunks && index < 4096 && !found; index++) {
+            ULONGLONG thunk;
+            if (!read_at(file, thunks + index * sizeof(thunk), &thunk, sizeof(thunk)) || !thunk) break;
+            if (thunk & IMAGE_ORDINAL_FLAG64) continue;
+            /* An import by name: a 2-byte hint, then the name. */
+            char name[sizeof("WaitNamedPipeW")];
+            DWORD at = file_offset(sections, count, (DWORD)thunk);
+            found = at && read_at(file, at + 2, name, sizeof(name)) && memcmp(name, "WaitNamedPipeW", sizeof(name)) == 0;
+        }
+    }
+done:
+    CloseHandle(file);
+    return found;
+}
+
+static BOOL has_module(HANDLE process, const WCHAR *path)
+{
+    HMODULE modules[512];
+    DWORD needed = 0;
+    if (!K32EnumProcessModulesEx(process, modules, sizeof(modules), &needed, LIST_MODULES_ALL)) return FALSE;
+    for (DWORD i = 0; i < needed / sizeof(HMODULE) && i < ARRAYSIZE(modules); i++) {
+        WCHAR name[MAX_PATH];
+        if (K32GetModuleFileNameExW(process, modules[i], name, MAX_PATH) && lstrcmpiW(name, path) == 0) return TRUE;
+    }
+    return FALSE;
+}
+
+/*
+ * Loads .gcm-pipewait.dll into the started program. The program needs a
+ * moment to initialize first, so this tries a few times; the library itself
+ * refuses to stay when it finds nothing to patch.
+ */
+static void lengthen_pipe_waits(HANDLE process, DWORD pid, const WCHAR *path)
+{
+    WCHAR library[MAX_PATH];
+    DWORD length = GetModuleFileNameW(NULL, library, MAX_PATH);
+    if (!length || length >= MAX_PATH) return;
+    WCHAR *name = library + length;
+    while (name > library && name[-1] != L'\\' && name[-1] != L'/') name--;
+    if (name - library + ARRAYSIZE(PIPE_WAIT_NAME) > MAX_PATH) return;
+    lstrcpyW(name, PIPE_WAIT_NAME);
+    if (GetFileAttributesW(library) == INVALID_FILE_ATTRIBUTES || !waits_for_pipes(path)) return;
+
+    LPTHREAD_START_ROUTINE load = (LPTHREAD_START_ROUTINE)(void (*)(void))GetProcAddress(
+        GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW");
+    SIZE_T size = (lstrlenW(library) + 1) * sizeof(WCHAR);
+    DWORD error = 0;
+    for (int attempt = 1; attempt <= HOOK_ATTEMPTS; attempt++) {
+        Sleep(300);
+        if (WaitForSingleObject(process, 0) == WAIT_OBJECT_0) return;
+        void *remote = VirtualAllocEx(process, NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        HANDLE thread = NULL;
+        if (remote && WriteProcessMemory(process, remote, library, size, NULL))
+            thread = CreateRemoteThread(process, NULL, 0, load, remote, 0, NULL);
+        error = thread ? 0 : GetLastError();
+        if (thread) {
+            WaitForSingleObject(thread, 10000);
+            CloseHandle(thread);
+        }
+        if (remote) VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+        if (thread && has_module(process, library)) {
+            log_line(L"pid %lu waits longer for its pipes (attempt %d)", pid, attempt);
+            return;
+        }
+    }
+    log_line(L"could not lengthen the pipe waits of pid %lu: error %lu", pid, error);
+}
+
 static void start_watcher(DWORD pid, const WCHAR *path)
 {
     WCHAR self[MAX_PATH];
@@ -212,20 +335,27 @@ int main(void)
     int count = 0;
     LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &count);
     if (argv && count == 4 && lstrcmpW(argv[1], L"--watch") == 0) return watch(argv[2], argv[3]);
-    if (!argv || count != 2) {
-        log_line(L"expected one program, got %d arguments", argv ? count - 1 : 0);
+    if (!argv || count < 2 || count > 3) {
+        log_line(L"expected one program and at most one argument, got %d arguments", argv ? count - 1 : 0);
         return 1;
     }
     const WCHAR *path = argv[1];
+    const WCHAR *argument = count == 3 ? argv[2] : NULL;
     size_t length = lstrlenW(path);
-    /* The command line is the quoted path; the working directory is its folder. */
-    WCHAR *command = HeapAlloc(GetProcessHeap(), 0, (length + 3) * sizeof(WCHAR));
+    size_t extra = argument ? lstrlenW(argument) + 3 : 0;
+    /* The command line is the quoted path, then the quoted argument; the working directory is the program's folder. */
+    WCHAR *command = HeapAlloc(GetProcessHeap(), 0, (length + 3 + extra) * sizeof(WCHAR));
     WCHAR *folder = HeapAlloc(GetProcessHeap(), 0, (length + 1) * sizeof(WCHAR));
     if (!command || !folder) return 1;
     command[0] = L'"';
     lstrcpyW(command + 1, path);
     command[length + 1] = L'"';
     command[length + 2] = 0;
+    if (argument) {
+        lstrcatW(command, L" \"");
+        lstrcatW(command, argument);
+        lstrcatW(command, L"\"");
+    }
     lstrcpyW(folder, path);
     WCHAR *slash = folder + length;
     while (slash > folder && *slash != L'\\' && *slash != L'/') slash--;
@@ -241,9 +371,11 @@ int main(void)
         return 1;
     }
     LONG status = make_system(started.hProcess);
-    log_line(L"started %ls as pid %lu (system process: %ls)", path, started.dwProcessId,
+    log_line(L"started %ls%ls%ls as pid %lu (system process: %ls)", path, argument ? L" with " : L"",
+             argument ? argument : L"", started.dwProcessId,
              status == 0 ? L"yes" : status == -1 ? L"not supported" : L"failed");
     log_machine(started.hProcess, started.dwProcessId);
+    lengthen_pipe_waits(started.hProcess, started.dwProcessId, path);
     start_watcher(started.dwProcessId, path);
     CloseHandle(started.hThread);
     CloseHandle(started.hProcess);

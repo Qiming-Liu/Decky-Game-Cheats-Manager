@@ -42,18 +42,29 @@ def _version(value) -> str:
     return ".".join(str(part) for part in parts) + (f"-{label}" if label else "")
 
 
-def _order(version: str) -> tuple[tuple[int, ...], bool]:
-    """Sort key: the numbers, then a test build before the release of the same number."""
+def _order(version: str) -> tuple:
+    """Sort key: the numbers, then a test build before the release of the same
+    number, then test labels with their numbers compared as numbers ("test" <
+    "test2" < "test10")."""
     number, _, label = version.partition("-")
     parts = [int(part) for part in number.split(".")]
     while parts and parts[-1] == 0:
         parts.pop()
-    return tuple(parts), not label
+    words = tuple((0, int(word)) if word.isdigit() else (1, word.lower())
+                  for word in re.findall(r"\d+|[^\d]+", label))
+    return tuple(parts), not label, words
 
 
 def is_newer(latest: str, current: str) -> bool:
+    """Whether `latest` is worth offering to someone on `current`.
+
+    A test build is offered only to those already testing: an installed
+    release never points at a test build, whatever its number.
+    """
     latest, current = _version(latest), _version(current)
-    return bool(latest and current) and _order(latest) > _order(current)
+    if not latest or not current or ("-" in latest and "-" not in current):
+        return False
+    return _order(latest) > _order(current)
 
 
 def _fetch() -> str:

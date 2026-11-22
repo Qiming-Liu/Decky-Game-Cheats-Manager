@@ -1,9 +1,10 @@
 {
-  "_comment": "Compatibility tools whose bundled Wine Mono 11.2.0 breaks .NET trainers (Path.GetFullPath mangles named pipes; wine-mono/mono#26). Matched against Steam's strCompatToolDisplayName with case-insensitive regular expressions. Fixed upstream by Wine Mono 11.2.1 / 11.3.0.",
+  "_comment": "Compatibility tools that cannot run trainers, matched against Steam's strCompatToolDisplayName with case-insensitive regular expressions. Most bundle Wine Mono 11.2.0, which breaks .NET trainers (Path.GetFullPath mangles named pipes; wine-mono/mono#26; fixed upstream by Wine Mono 11.2.1 / 11.3.0). Steam Linux Runtime runs a game's native Linux build without Proton, so PROTON_REMOTE_DEBUG_CMD never starts the trainer.",
   "unsupported": [
     { "match": "^Proton 11\\.0-2", "note": "Proton 11.0-2 and its 2b/2c/2e builds" },
     { "match": "^Proton Hotfix$", "note": "Based on the Proton 11.0-2 branch" },
     { "match": "^GE-Proton11-[2-6]$", "note": "GE-Proton 11-2 to 11-6; 11-7 ships Wine Mono 11.3.0" },
-    { "match": "CachyOS.*11\\.0-2026070[23]", "note": "Proton-CachyOS 11.0-20260702 and 20260703; 20261005 ships Wine Mono 11.3.0" }
+    { "match": "CachyOS.*11\\.0-2026070[23]", "note": "Proton-CachyOS 11.0-20260702 and 20260703; 20261005 ships Wine Mono 11.3.0" },
+    { "match": "^Steam Linux Runtime", "note": "Native Linux build: no Proton, no Windows trainer" }
   ]
 }

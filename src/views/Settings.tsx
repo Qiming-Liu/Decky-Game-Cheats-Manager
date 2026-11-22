@@ -1,17 +1,21 @@
 import { Focusable, Navigation, PanelSection, PanelSectionRow, useQuickAccessVisible } from "@decky/ui";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { cancelDownload, cleanupTrash } from "../utils/backend";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
-import { refreshUpdate } from "../hooks/useUpdate";
+import { refreshUpdate, useUpdate } from "../hooks/useUpdate";
+import { useRunningTable } from "../hooks/useRunningTable";
+import TablePanel from "./TablePanel";
 import { errorMessage, menuItemLabel, useTranslations } from "../utils/i18n";
-import { SETTINGS_ROUTE } from "../utils/routes";
-import { colors, IconButton, jobStateLabel } from "./shell";
+import { ABOUT_ROUTE, SETTINGS_ROUTE } from "../utils/routes";
+import { colors, FOCUS_CSS, IconButton, jobStateLabel } from "./shell";
 import { NAV_BUTTON, NAV_GLYPH_CSS, NavGlyph } from "./AdaptiveNavGlyph";
-import { ChevronRightIcon, CrossIcon, GearIcon, LibraryIcon, PluginIcon } from "./icons";
+import { ChevronRightIcon, CrossIcon, GearIcon, InfoIcon, LibraryIcon, PluginIcon } from "./icons";
+import { UpdateDot } from "./update";
 
 /** The Quick Access panel: the way to the settings page, running downloads and how to open a game page. */
 export default function Settings() {
   const t = useTranslations();
+  const { latest } = useUpdate();
   const visible = useQuickAccessVisible();
   useEffect(() => {
     if (!visible) return;
@@ -21,26 +25,23 @@ export default function Settings() {
   const [message, setMessage] = useState("");
   const [cancelling, setCancelling] = useState(new Set<string>());
   const active = useDownloads().filter(job => ["queued", "downloading", "extracting"].includes(job.state));
+  const running = useRunningTable();
   async function cancel(jobId: string, appId: string) {
     setCancelling(previous => new Set(previous).add(jobId));
     try { trackDownload(await cancelDownload({ appId, jobId })); }
     catch (error) { setMessage(error instanceof Error ? error.message : "unknownError"); }
   }
   // The Quick Access menu is its own window without the page styles, so the
-  // link brings its own focus colour (an inline background hides Steam's).
+  // link brings its own focus colour (an inline background hides Steam's), and
+  // the rows and buttons shared with the pages bring theirs.
   return <PanelSection>
-    <style>{".gcm-panel-link.gpfocus { background: #dcdedf !important; color: #0e141b !important; }" + NAV_GLYPH_CSS}</style>
+    <style>{".gcm-panel-link.gpfocus { background: #dcdedf !important; color: #0e141b !important; }" + NAV_GLYPH_CSS + FOCUS_CSS}</style>
     <PanelSectionRow><HowTo /></PanelSectionRow>
-    <PanelSectionRow>
-      <Focusable className="gcm-panel-link" onActivate={openSettings} onClick={openSettings} style={{
-        display: "flex", alignItems: "center", gap: 10, height: 44, boxSizing: "border-box", padding: "0 12px", borderRadius: 4,
-        background: "rgba(0,0,0,.28)", color: colors.text, fontSize: 14, cursor: "pointer", marginBottom: 14,
-      }}>
-        <GearIcon />
-        <span style={{ flex: "1 1 auto" }}>{t.advancedSettings}</span>
-        <ChevronRightIcon size={14} color="currentColor" />
-      </Focusable>
-    </PanelSectionRow>
+    {!running && <>
+      <PanelLink route={SETTINGS_ROUTE} icon={<GearIcon />}>{t.advancedSettings}</PanelLink>
+      <PanelLink route={ABOUT_ROUTE} icon={<InfoIcon />}>{t.aboutPlugin}{latest && <UpdateDot />}</PanelLink>
+    </>}
+    {running && <TablePanel key={running.table} running={running} />}
     {active.length > 0 && <PanelSectionRow>
       <Focusable flow-children="column" aria-label={t.downloadsTitle} style={{
         boxSizing: "border-box", padding: "12px 14px", borderRadius: 4, background: "rgba(0,0,0,.28)", marginBottom: 14,
@@ -85,7 +86,19 @@ function HowTo() {
   </div>;
 }
 
-function openSettings() {
-  Navigation.Navigate(SETTINGS_ROUTE);
-  Navigation.CloseSideMenus();
+function PanelLink({ route, icon, children }: { route: string; icon: ReactNode; children: ReactNode }) {
+  const open = () => {
+    Navigation.Navigate(route);
+    Navigation.CloseSideMenus();
+  };
+  return <PanelSectionRow>
+    <Focusable className="gcm-panel-link" onActivate={open} onClick={open} style={{
+      display: "flex", alignItems: "center", gap: 10, height: 44, boxSizing: "border-box", padding: "0 12px", borderRadius: 4,
+      background: "rgba(0,0,0,.28)", color: colors.text, fontSize: 14, cursor: "pointer", marginBottom: 14,
+    }}>
+      {icon}
+      <span style={{ flex: "1 1 auto", display: "flex", alignItems: "center", gap: 8 }}>{children}</span>
+      <ChevronRightIcon size={14} color="currentColor" />
+    </Focusable>
+  </PanelSectionRow>;
 }

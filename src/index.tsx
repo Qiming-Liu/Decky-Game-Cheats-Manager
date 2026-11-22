@@ -5,7 +5,8 @@ import installGameMenu from "./patch";
 import watchTrainerLaunches from "./launchCheck";
 import { logFrontend } from "./utils/backend";
 import { initLanguage, PLUGIN_NAME } from "./utils/i18n";
-import { GAME_PAGE_ROUTE, SETTINGS_ROUTE } from "./utils/routes";
+import { ABOUT_ROUTE, GAME_PAGE_ROUTE, SETTINGS_ROUTE } from "./utils/routes";
+import { PluginAboutPage } from "./views/About";
 import AdvancedSettings from "./views/AdvancedSettings";
 import GamePage from "./views/GamePage";
 import { PluginIcon } from "./views/icons";
@@ -39,6 +40,7 @@ export default definePlugin(() => {
   try {
     routerHook.addRoute(GAME_PAGE_ROUTE, GamePage, { exact: true });
     routerHook.addRoute(SETTINGS_ROUTE, AdvancedSettings, { exact: true });
+    routerHook.addRoute(ABOUT_ROUTE, PluginAboutPage, { exact: true });
   } catch (error) {
     logFrontend("error", "Registering the plugin pages failed", error);
     throw error;
@@ -52,6 +54,7 @@ export default definePlugin(() => {
     onDismount() {
       routerHook.removeRoute(GAME_PAGE_ROUTE);
       routerHook.removeRoute(SETTINGS_ROUTE);
+      routerHook.removeRoute(ABOUT_ROUTE);
       removeGameMenu();
       stopLaunchCheck();
     },

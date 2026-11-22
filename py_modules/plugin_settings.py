@@ -11,13 +11,15 @@ PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
 # Seconds a game runs before its trainers start.
 DELAYS = (0, 5, 10, 15, 30, 60)
 # skip_launcher_check: also edit games a Flatpak or AppImage launcher starts.
-DEFAULTS = {"allow_multiple": False, "auto_select": True, "launch_delay": 0, "skip_launcher_check": False}
+# auto_attach: point Cheat Engine at the game by itself once a game with a table starts.
+DEFAULTS = {"allow_multiple": False, "auto_attach": True, "launch_delay": 0,
+            "skip_launcher_check": False}
 _lock = threading.Lock()
 
 
 def _clean(data: dict) -> dict:
     settings = dict(DEFAULTS)
-    for key in ("allow_multiple", "auto_select", "skip_launcher_check"):
+    for key in ("allow_multiple", "auto_attach", "skip_launcher_check"):
         if isinstance(data.get(key), bool):
             settings[key] = data[key]
     delay = data.get("launch_delay")

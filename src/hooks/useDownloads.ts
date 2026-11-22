@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { DownloadJob, getDownloads } from "../utils/backend";
+import { invalidateCheatEngine } from "./useCheatEngine";
 import { invalidateLibrary } from "./useLibrary";
 
 let jobs: DownloadJob[] = [];
@@ -7,8 +8,13 @@ let timer: number | undefined;
 let generation = 0;
 let request = 0;
 let completed = "";
+// Finished tasks the user closed. The backend keeps them until the plugin reloads.
+const dismissed = new Set<string>();
 const listeners = new Set<() => void>();
-const publish = (next: DownloadJob[]) => { jobs = next; listeners.forEach((listener) => listener()); };
+const publish = (next: DownloadJob[]) => {
+  jobs = next.filter((job) => !dismissed.has(job.id));
+  listeners.forEach((listener) => listener());
+};
 
 async function poll(epoch: number) {
   const id = ++request;
@@ -20,6 +26,7 @@ async function poll(epoch: number) {
     if (signature !== completed) {
       completed = signature;
       invalidateLibrary();
+      invalidateCheatEngine();
     }
   } catch {
     // Temporary RPC errors do not stop synchronization.
@@ -42,4 +49,10 @@ export function trackDownload(job: DownloadJob) {
   publish([...jobs.filter((item) => item.id !== job.id), job]);
 }
 
-export const useDownloads = () => useSyncExternalStore(subscribe, () => jobs);
+/** Hides a failed task's row for the rest of this frontend load. */
+export function dismissDownload(id: string) {
+  dismissed.add(id);
+  publish(jobs);
+}
+
+export const useDownloads =() => useSyncExternalStore(subscribe, () => jobs);

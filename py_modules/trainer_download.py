@@ -184,7 +184,7 @@ class DownloadManager:
                 shutil.move(str(downloaded), content / downloaded.name)
             if not any(p.is_file() and p.suffix.lower() in trainer_library.TRAINER_EXTENSIONS for p in content.rglob("*")):
                 raise ValueError("No .exe or .CT trainer files found in the download.")
-            metadata = {k: trainer.get(k, "") for k in ("trainer_name", "game_name", "version", "origin")}
+            metadata = {k: trainer.get(k, "") for k in ("trainer_name", "game_name", "version", "origin", "author")}
             metadata.update(schema_version=1, trainer_id=trainer["id"], source_path=trainer["url"],
                             content_hashes=trainer_library.content_hashes(content, check))
             check()
@@ -216,6 +216,16 @@ class DownloadManager:
                 self._cancel.pop(job["id"], None)
             if job["state"] == "done":
                 decky.logger.info('Download of trainer "%s" finished: %s', job["trainer_name"], job["path"])
+                # A fresh Cheat Engine replaces any earlier copy and gets the
+                # plugin's autorun script right away.
+                if (Path(job["path"]) / trainer_library.CHEAT_ENGINE).is_file():
+                    try:
+                        final = str(trainer_library.replace_cheat_engine(job["path"]))
+                        with self._lock:
+                            job["path"] = final
+                        trainer_library.install_bridge(final)
+                    except (OSError, ValueError) as error:
+                        decky.logger.warning("Could not finish installing Cheat Engine: %s", error)
             elif job["state"] == "error":
                 decky.logger.warning('Download of trainer "%s" failed: %s', job["trainer_name"], job["error"])
 
