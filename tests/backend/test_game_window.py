@@ -34,14 +34,62 @@ class GameWindowTest(unittest.TestCase):
         }
         programs = ["/home/deck/DeckyGCM/[CT] Sekiro/Table.ct", "/home/deck/DeckyGCM/Sekiro Trainer/Trainer.exe"]
         read = lambda display: seen if display == ":0" else {}
-        self.assertEqual(game_window.windows("2211630218", programs, self.proc, read),
-                         {"game": 37748737, "focused": 41943045, "trainer_in_front": True})
+        dialogs = set()
+        describe = lambda display, window: {"name": "", "dialog": display == ":0" and window in dialogs}
+        windows = lambda app: game_window.windows(app, programs, self.proc, read, describe)
+        trainers = [37749000, 41943045]
+        self.assertEqual(windows("2211630218"),
+                         {"game": 37748737, "focused": 41943045, "trainer_in_front": True, "dialog_in_front": False,
+                          "hidden_dialog": 0, "trainer_windows": trainers})
+        # Cheat Engine asking something (a table's question) stays in front.
+        dialogs.add(41943045)
+        self.assertEqual(windows("2211630218"),
+                         {"game": 37748737, "focused": 41943045, "trainer_in_front": False, "dialog_in_front": True,
+                          "hidden_dialog": 0, "trainer_windows": trainers})
         seen["GAMESCOPE_FOCUSED_WINDOW"] = [37748737]
-        self.assertFalse(game_window.windows("2211630218", programs, self.proc, read)["trainer_in_front"])
+        self.assertFalse(windows("2211630218")["trainer_in_front"])
         # Another app's windows, or no gamescope at all, give nothing to switch to.
-        self.assertEqual(game_window.windows("42", programs, self.proc, read)["game"], 0)
-        self.assertEqual(game_window.windows("42", programs, self.proc, lambda display: {}),
-                         {"game": 0, "focused": 0, "trainer_in_front": False})
+        self.assertEqual(windows("42")["game"], 0)
+        self.assertEqual(game_window.windows("42", programs, self.proc, lambda display: {}, describe),
+                         {"game": 0, "focused": 0, "trainer_in_front": False, "dialog_in_front": False,
+                          "hidden_dialog": 0, "trainer_windows": []})
+
+    def test_a_trainers_message_box_behind_its_window_is_found(self):
+        # Values seen on the ROG, 2026-11-24: a FLiNG trainer's "game not found" box
+        # stayed behind the trainer, and the trainer ignored every tap.
+        self.process(129735, [r"Z:\home\deck\Games\God of War\GoW.exe"], 900)
+        self.process(129723, [r"Z:\home\deck\DeckyGCM\GTA\Trainer.exe"], 100)
+        self.process(129800, [r"Z:\home\deck\DeckyGCM\GTA\Other.exe"], 100)
+        seen = {
+            "GAMESCOPE_FOCUSED_WINDOW": [29360138],
+            "GAMESCOPE_FOCUSABLE_WINDOWS": [29360139, 2211630218, 129723, 41943041, 2211630218, 129735,
+                                            29360138, 2211630218, 129723],
+        }
+        programs = ["/home/deck/DeckyGCM/GTA/Trainer.exe", "/home/deck/DeckyGCM/GTA/Other.exe"]
+        dialogs = {29360139}
+        owners = {29360139: 129723, 29360138: 129723, 41943041: 129735, 29360100: 129800}
+
+        def describe(display, window):
+            # gamescope's lists are on :0, the windows on :1; :0 has unrelated
+            # windows with the same IDs (Steam's own, process 3000).
+            if display == ":1":
+                return {"name": "", "dialog": window in dialogs, "pid": owners.get(window, 0)}
+            return {"name": "", "dialog": window == 29360138, "pid": 3000}
+
+        read = lambda display: seen if display == ":0" else {}
+        windows = lambda: game_window.windows("2211630218", programs, self.proc, read, describe)
+        result = windows()
+        self.assertEqual((result["trainer_in_front"], result["hidden_dialog"], result["trainer_windows"]),
+                         (True, 29360139, [29360138, 29360139]))
+        # The focused trainer's own dialog comes before another trainer's.
+        seen["GAMESCOPE_FOCUSABLE_WINDOWS"] = [29360100, 2211630218, 129800] + seen["GAMESCOPE_FOCUSABLE_WINDOWS"]
+        dialogs.add(29360100)
+        self.assertEqual(windows()["hidden_dialog"], 29360139)
+        # Shown, or with the game in front, there is nothing to bring forward.
+        seen["GAMESCOPE_FOCUSED_WINDOW"] = [29360139]
+        self.assertEqual((windows()["dialog_in_front"], windows()["hidden_dialog"]), (True, 0))
+        seen["GAMESCOPE_FOCUSED_WINDOW"] = [41943041]
+        self.assertEqual(windows()["hidden_dialog"], 0)
 
     def test_processes_are_ranked_window_first_then_steams_program_then_memory(self):
         app = "42"

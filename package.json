@@ -1,6 +1,6 @@
 {
   "name": "decky-game-cheats-manager",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Decky Loader plugin bringing Game Cheats Manager's trainer search and download to Steam Deck.",
   "type": "module",
   "scripts": {
@@ -28,9 +28,9 @@
   "author": "Qiming-Liu",
   "license": "GPL-3.0",
   "bugs": {
-    "url": "https://gitlab.com/alan-liu/Decky-Game-Cheats-Manager/-/issues"
+    "url": "https://github.com/Qiming-Liu/Decky-Game-Cheats-Manager/issues"
   },
-  "homepage": "https://gitlab.com/alan-liu/Decky-Game-Cheats-Manager#readme",
+  "homepage": "https://github.com/Qiming-Liu/Decky-Game-Cheats-Manager#readme",
   "devDependencies": {
     "@decky/rollup": "^1.0.2",
     "@decky/ui": "^4.11.0",

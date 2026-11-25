@@ -3,7 +3,7 @@ import { definePlugin } from "@decky/ui";
 
 import installGameMenu from "./patch";
 import watchTrainerLaunches from "./launchCheck";
-import { logFrontend } from "./utils/backend";
+import { flushPendingLog, logFrontend, logUncaughtErrors } from "./utils/backend";
 import { initLanguage, PLUGIN_NAME } from "./utils/i18n";
 import { ABOUT_ROUTE, GAME_PAGE_ROUTE, SETTINGS_ROUTE } from "./utils/routes";
 import { PluginAboutPage } from "./views/About";
@@ -11,6 +11,7 @@ import AdvancedSettings from "./views/AdvancedSettings";
 import GamePage from "./views/GamePage";
 import { PluginIcon } from "./views/icons";
 import Settings from "./views/Settings";
+import { TestBuildNotice } from "./views/TestBuildNotice";
 import { UpdateDot, VersionBadge } from "./views/update";
 import { refreshUpdate, useUpdate } from "./hooks/useUpdate";
 
@@ -33,6 +34,8 @@ function Icon() {
 
 export default definePlugin(() => {
   initLanguage();
+  const stopErrorLog = logUncaughtErrors();
+  void flushPendingLog();
   const removeGameMenu = installGameMenu();
   const stopLaunchCheck = watchTrainerLaunches();
   void refreshUpdate();
@@ -49,7 +52,7 @@ export default definePlugin(() => {
   return {
     name: PLUGIN_NAME,
     titleView: <Title />,
-    content: <Settings />,
+    content: <><TestBuildNotice /><Settings /></>,
     icon: <Icon />,
     onDismount() {
       routerHook.removeRoute(GAME_PAGE_ROUTE);
@@ -57,6 +60,7 @@ export default definePlugin(() => {
       routerHook.removeRoute(ABOUT_ROUTE);
       removeGameMenu();
       stopLaunchCheck();
+      stopErrorLog();
     },
   };
 });

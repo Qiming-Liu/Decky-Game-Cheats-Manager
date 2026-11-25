@@ -21,7 +21,8 @@ else:
 
 ROOT = Path(__file__).resolve().parents[1]
 # Built by scripts/build_native.sh from these sources.
-NATIVE = {"gcm-start.exe": "native/gcm_start.c", "gcm-pipewait.dll": "native/gcm_pipewait.c"}
+NATIVE = {"gcm-start.exe": "native/gcm_start.c", "gcm-pipewait.dll": "native/gcm_pipewait.c",
+          "gcm-ce-context.dll": "native/gcm_ce_context.c"}
 
 
 def stage(root: Path, destination: Path):
@@ -57,8 +58,13 @@ def stage(root: Path, destination: Path):
         protect_python(source, destination)
 
 
+def release_python() -> bool:
+    """Whether this interpreter writes the bytecode Decky's Python loads."""
+    return sys.implementation.name == "cpython" and sys.version_info[:2] == (3, 14)
+
+
 def package(output: Path):
-    if sys.implementation.name != "cpython" or sys.version_info[:2] != (3, 14):
+    if not release_python():
         raise RuntimeError("Release packaging requires Decky's CPython 3.14 bytecode format")
     if not (ROOT / "py_modules/_gcm_core/auth.py").is_file():
         raise RuntimeError("Generate the authenticated GCM core before packaging")

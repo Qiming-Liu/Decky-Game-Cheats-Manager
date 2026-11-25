@@ -1,0 +1,16 @@
+{
+  "toggles": [
+    { "id": "desktop", "name": "SteamDeck", "value": "0" },
+    { "id": "wined3d", "name": "PROTON_USE_WINED3D", "value": "1" },
+    { "id": "fsync", "name": "PROTON_NO_FSYNC", "value": "1" },
+    { "id": "overlay", "name": "LD_PRELOAD", "value": "" },
+    { "id": "sdl", "name": "PROTON_USE_SDL", "value": "1" },
+    { "id": "log", "name": "PROTON_LOG", "value": "1" }
+  ],
+  "language_names": ["LANG", "HOST_LC_ALL"],
+  "language_encoding": ".UTF-8",
+  "languages": ["en_US", "zh_CN", "zh_TW", "ja_JP", "ko_KR", "de_DE", "fr_FR", "es_ES", "it_IT", "pt_BR", "ru_RU", "pl_PL"],
+  "audio_name": "PULSE_LATENCY_MSEC",
+  "audio_values": ["30", "60", "90"],
+  "compat_data_name": "STEAM_COMPAT_DATA_PATH"
+}

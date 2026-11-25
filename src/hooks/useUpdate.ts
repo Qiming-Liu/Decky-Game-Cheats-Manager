@@ -2,11 +2,11 @@ import { useEffect, useSyncExternalStore } from "react";
 import { getUpdate, UpdateInfo } from "../utils/backend";
 
 // One shared answer for the Quick Access title, the plugin icon and the game
-// page. The backend asks GitLab at most once a week and never fails loudly, so
+// page. The backend asks GitHub at most once a day and never fails loudly, so
 // asking it whenever a view mounts is cheap.
 
-export const REPOSITORY_URL = "https://gitlab.com/alan-liu/Decky-Game-Cheats-Manager";
-export const RELEASE_URL = `${REPOSITORY_URL}/-/releases/permalink/latest`;
+export const REPOSITORY_URL = "https://github.com/Qiming-Liu/Decky-Game-Cheats-Manager";
+export const RELEASE_URL = `${REPOSITORY_URL}/releases`;
 
 let info: UpdateInfo = { current: "", latest: "" };
 let pending: Promise<void> | undefined;

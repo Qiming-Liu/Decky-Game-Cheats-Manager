@@ -23,7 +23,7 @@ from pathlib import Path
 import decky
 import launcher
 import plugin_settings
-import trainer_library
+import library_settings
 
 # The starter follows a program for 30 seconds; a little more for its last line.
 WATCH_SECONDS = 35
@@ -43,7 +43,7 @@ def log_files() -> list[Path]:
     """The launch logs beside the library's script and the legacy one."""
     files = [Path(launcher.LEGACY_PATH).parent / launcher.LOG_NAME]
     try:
-        files.insert(0, Path(trainer_library.directory()).resolve() / launcher.LOG_NAME)
+        files.insert(0, Path(library_settings.directory()).resolve() / launcher.LOG_NAME)
     except OSError:
         pass
     return files

@@ -2,7 +2,8 @@ import { ConfirmModal, Focusable, ModalRoot, showModal, Spinner, TextField, Togg
 import { useState } from "react";
 import { COMMON_NAMES } from "../domain/common";
 import { CustomOption, detectedOption, isOptionEnabled, optionDefinitions, OptionGroup, optionsIn, setOptionEnabled } from "../domain/custom";
-import { definitionKey, LaunchOptions, parseLaunchOptionDefinitions, renderLaunchOptionDefinition } from "../domain/options";
+import { parseLaunchOptionDefinitions } from "../domain/definitions";
+import { definitionKey, LaunchOptions, renderLaunchOptionDefinition } from "../domain/options";
 import { TRAINER_NAMES } from "../domain/trainerCommand";
 import { checkPresets, presetInstalled, saveOptions, useCustomOptions, useLaunchContext } from "../hooks/useCustomOptions";
 import { useLaunchOptions } from "../hooks/useLaunchOptions";

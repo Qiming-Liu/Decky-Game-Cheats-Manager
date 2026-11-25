@@ -1,7 +1,7 @@
-"""The About page's data: the newest release on GitLab and the system the plugin runs on.
+"""The About page's data: the newest release on GitHub and the system the plugin runs on.
 
-The release check runs at most once every seven days. It never raises: when
-GitLab cannot be reached the page simply shows the installed version, and
+The release check runs at most once a day. It never raises: when
+GitHub cannot be reached the page simply shows the installed version, and
 the next attempt waits a day so an offline Deck does not retry on every open.
 """
 from __future__ import annotations
@@ -14,10 +14,12 @@ import time
 import decky
 from library_storage import read_json, write_json
 
-# Redirects to the newest release on GitLab.
-RELEASE_API = "https://gitlab.com/api/v4/projects/alan-liu%2FDecky-Game-Cheats-Manager/releases/permalink/latest"
+# The newest releases, test builds (pre-releases) included: GitHub's "latest" leaves those out.
+RELEASE_API = "https://api.github.com/repos/Qiming-Liu/Decky-Game-Cheats-Manager/releases?per_page=30"
 PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "update_check.json")
-INTERVAL = 7 * 24 * 3600
+# The test build whose notice the player has seen.
+NOTICE_PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "test_notice.json")
+INTERVAL = 24 * 3600
 RETRY_AFTER_FAILURE = 24 * 3600
 OS_RELEASE = "/etc/os-release"
 # An optional pre-release label marks a test build, e.g. "1.0.2-test".
@@ -67,40 +69,78 @@ def is_newer(latest: str, current: str) -> bool:
     return _order(latest) > _order(current)
 
 
-def _fetch() -> str:
-    """The newest release's version, or "" when GitLab gives no usable answer."""
+def newest(versions) -> tuple[str, str]:
+    """The newest of `versions` overall and the newest release among them ("" when none)."""
+    found = sorted((version for version in map(_version, versions) if version), key=_order)
+    releases = [version for version in found if "-" not in version]
+    return (found[-1] if found else "", releases[-1] if releases else "")
+
+
+def _fetch() -> tuple[str, str]:
+    """The newest published version and the newest release; ("", "") when GitHub
+    gives no usable answer."""
     import certifi
     import requests
 
     response = requests.get(RELEASE_API, timeout=10, verify=certifi.where(), headers={
-        "Accept": "application/json", "User-Agent": "DeckyGCM",
+        "Accept": "application/vnd.github+json", "User-Agent": "DeckyGCM",
     })
     if response.status_code != 200:
-        return ""
+        return "", ""
     data = response.json()
-    return _version(data.get("tag_name")) if isinstance(data, dict) else ""
+    if not isinstance(data, list):
+        return "", ""
+    return newest(item.get("tag_name") for item in data if isinstance(item, dict) and not item.get("draft"))
 
 
 def update(now: float | None = None) -> dict:
-    """The installed and newest versions; checks GitLab when the last check is a week old."""
+    """The installed version and the newest one worth offering; checks GitHub when the
+    last check is a day old. A test build is offered the newest version of all, a
+    release only the newest release."""
     now = time.time() if now is None else now
     current = _version(decky.DECKY_PLUGIN_VERSION) or str(decky.DECKY_PLUGIN_VERSION)
     with _lock:
         state = read_json(PATH)
-        latest = _version(state.get("latest"))
+        latest, release = _version(state.get("latest")), _version(state.get("release"))
         due = state.get("next_check")
         if not isinstance(due, (int, float)) or isinstance(due, bool) or now >= due or due > now + INTERVAL:
             try:
                 fetched = _fetch()
             except Exception:  # noqa: BLE001 - any failure only delays the next check
-                fetched = ""
-            if fetched:
-                latest = fetched
+                fetched = ("", "")
+            if fetched[0]:
+                latest, release = fetched
             try:
-                write_json(PATH, {"latest": latest, "next_check": now + (INTERVAL if fetched else RETRY_AFTER_FAILURE)})
+                write_json(PATH, {"latest": latest, "release": release,
+                                  "next_check": now + (INTERVAL if fetched[0] else RETRY_AFTER_FAILURE)})
             except OSError:
                 pass
-    return {"current": current, "latest": latest if is_newer(latest, current) else ""}
+    offered = latest if "-" in _version(current) else release
+    return {"current": current, "latest": offered if is_newer(offered, current) else ""}
+
+
+def _test_build() -> str:
+    """The installed version when it is a test build ("x.y.z-test"), otherwise ""."""
+    current = _version(decky.DECKY_PLUGIN_VERSION)
+    return current if "-" in current else ""
+
+
+def test_notice() -> str:
+    """The test build whose notice is still to be shown, once per installed
+    test version; "" for a release, which never shows it."""
+    current = _test_build()
+    if not current:
+        return ""
+    with _lock:
+        return "" if read_json(NOTICE_PATH).get("seen") == current else current
+
+
+def acknowledge_test_notice() -> None:
+    """Records that the installed test build's notice was seen."""
+    current = _test_build()
+    if current:
+        with _lock:
+            write_json(NOTICE_PATH, {"seen": current})
 
 
 def system_name() -> str:

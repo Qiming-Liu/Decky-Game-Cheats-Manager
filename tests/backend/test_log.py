@@ -11,6 +11,7 @@ from unittest.mock import patch
 import decky
 import main
 import plugin_log
+import rpc_common
 
 
 class PluginLogTest(unittest.TestCase):
@@ -48,6 +49,25 @@ class PluginLogTest(unittest.TestCase):
         self.assertEqual(entries[1]["level"], "ERROR")
         self.assertIn("ValueError: broken", entries[1]["message"])
 
+    def test_a_run_that_did_not_stop_normally_is_reported_at_the_next_start(self):
+        self.log.attach(self.logger, "first start")
+        self.log._handler.close()  # killed: detach never runs
+        self.log._crash_file.close()
+        self.log._handler = self.log._crash_file = None
+        (self.root / "logs" / "deckygcm.crash").write_text("Fatal Python error: Segmentation fault\n",
+                                                           encoding="utf-8")
+        self.log = plugin_log.PluginLog(self.root / "logs", "deckygcm")
+        self.log.attach(self.logger, "second start")
+        messages = [entry["message"] for entry in self.log.read()]
+        self.assertTrue(any("did not stop normally" in message for message in messages))
+        self.assertTrue(any("Segmentation fault" in message for message in messages))
+        # Reported once; a normal stop leaves nothing to report.
+        self.log.detach()
+        self.log = plugin_log.PluginLog(self.root / "logs", "deckygcm")
+        self.log.attach(self.logger, "third start")
+        third = [entry["message"] for entry in self.log.read()]
+        self.assertEqual(third[len(messages):], ["third start"])
+
     def test_export_writes_rotated_files_oldest_first(self):
         logs = self.root / "logs"
         logs.mkdir()
@@ -81,7 +101,7 @@ class LogRpcTest(unittest.TestCase):
         self.log = plugin_log.PluginLog(self.root / "logs", "deckygcm")
         self.log.attach(decky.logger, "started")
         self.addCleanup(self.log.detach)
-        for target, name, value in ((main, "LOG", self.log), (decky, "DECKY_USER_HOME", str(self.root))):
+        for target, name, value in ((rpc_common, "LOG", self.log), (decky, "DECKY_USER_HOME", str(self.root))):
             patcher = patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -101,9 +121,9 @@ class LogRpcTest(unittest.TestCase):
 
     def test_user_actions_log_one_line_with_their_outcome(self):
         records = [{"url": "secret-path", "id": "a"}]
-        with patch("main.custom_options.save", return_value=records):
+        with patch("custom_options.save", return_value=records):
             asyncio.run(main.Plugin().save_custom_options(records))
-        with patch("main.custom_options.save", side_effect=OSError("disk full")):
+        with patch("custom_options.save", side_effect=OSError("disk full")):
             asyncio.run(main.Plugin().save_custom_options(records))
         asyncio.run(main.Plugin().get_settings())
         entries = self.log.read()[1:]  # after the start banner

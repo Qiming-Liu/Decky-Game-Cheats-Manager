@@ -1,5 +1,8 @@
 import { LaunchOptions, LaunchOptionDefinition, renderWord } from "./options";
 import { parseLiteralWord, parseRawWords } from "./parser";
+import data from "../data/trainers.json";
+import { isTableFile } from "./fileTypes";
+import { folderOf } from "./paths";
 
 const command = "PROTON_REMOTE_DEBUG_CMD";
 const filesystem = "PRESSURE_VESSEL_FILESYSTEMS_RW";
@@ -27,7 +30,6 @@ export const trainerCommand = (source: string, home = "") => {
   // Earlier versions quoted the path a second time; read those values too.
   return /^'.*'$/.test(value) ? parseLiteralWord(value) ?? value : value;
 };
-const folderOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
 const windowsPath = (path: string) => `Z:${path.split("/").join("\\")}`;
 // Batch files expand %, so such paths cannot be passed; quotes end the
 // argument, and backslashes would read as folder separators.
@@ -35,7 +37,7 @@ const passable = (path: string) => path.startsWith("/") && !/[\x00-\x1f:%"\\]/.t
 
 const CHEAT_ENGINE_FLAG = "--ce";
 /** A Cheat Engine table, which the launcher opens through Cheat Engine. */
-export const isTable = (path: string) => /\.(ct|cetrainer)$/i.test(path);
+export const isTable = isTableFile;
 
 /**
  * The command that starts `programs` in order through the launcher script.
@@ -45,10 +47,10 @@ export const isTable = (path: string) => /\.(ct|cetrainer)$/i.test(path);
  * the Cheat Engine program, which the launcher is told first.
  */
 export function launcherCommand(script: string, programs: string[], cheatEngine = ""): string {
-  if (!programs.length || !programs.every(passable)) throw new Error("Choose a valid absolute Linux program path without colons.");
+  if (!programs.length || !programs.every(passable)) throw new Error("Choose a valid absolute Linux program path without special characters.");
   const tables = programs.some(isTable);
   if (tables && !cheatEngine) throw new Error("cheat_engine_missing");
-  if (tables && !passable(cheatEngine)) throw new Error("Choose a valid absolute Linux program path without colons.");
+  if (tables && !passable(cheatEngine)) throw new Error("Choose a valid absolute Linux program path without special characters.");
   const root = folderOf(script);
   const argument = (program: string) => within(program, root)
     ? canonical(program).slice(canonical(root).length + 1).split("/").join("\\") : windowsPath(program);
@@ -84,6 +86,10 @@ export function launcherPrograms(command: string | undefined, ...scripts: string
   return words?.length === 1 && words[0] !== undefined ? [words[0]] : [command];
 }
 
+/** True when `command` runs one of the launcher `scripts`. */
+export const runsLauncher = (command: string | undefined, ...scripts: string[]): boolean =>
+  launcherArguments(command, scripts) !== undefined;
+
 /** The Cheat Engine program a launcher command names, if any. */
 export const launcherCheatEngine = (command: string | undefined, ...scripts: string[]): string =>
   launcherArguments(command, scripts)?.engine ?? "";
@@ -105,7 +111,7 @@ const inside = (folder: string, root: string) => {
  * under them need no `PRESSURE_VESSEL_FILESYSTEMS_RW` entry. `/var/home` is
  * where SteamOS-style systems keep the real home directories.
  */
-const SHARED_ROOTS = ["/home", "/var/home", "/media", "/mnt", "/run/media", "/opt", "/srv"];
+const SHARED_ROOTS: readonly string[] = data.container_shared_roots;
 export const sharedByDefault = (folder: string) => SHARED_ROOTS.some(root => folder === root || inside(folder, root));
 
 /**
@@ -131,10 +137,10 @@ export function setTrainerCommand(source: string, path?: string, folders?: strin
   const shared = path ? folders ?? [folderOf(path)] : [];
   if (path) {
     if (/[\x00-\x1f]/.test(path) || !shared.every(folder => folder.startsWith("/") && !/[\x00-\x1f:]/.test(folder)))
-      throw new Error("Choose a valid absolute Linux program path without colons.");
+      throw new Error("Choose a valid absolute Linux program path without special characters.");
     // A plain program path is shared through its folder, which cannot hold a colon.
     if (!folders && (!path.startsWith("/") || path.includes(":")))
-      throw new Error("Choose a valid absolute Linux program path without colons.");
+      throw new Error("Choose a valid absolute Linux program path without special characters.");
   }
   const needed = shared.filter(folder => !sharedByDefault(folder));
   const scripts = [owner.script ?? "", ...owner.scripts ?? []];
@@ -156,4 +162,22 @@ export function setTrainerCommand(source: string, path?: string, folders?: strin
   const result = options.edit(edits);
   if (!result.ok) throw new Error("Could not update launch options safely.");
   return result.value.toString();
+}
+
+const protonLog = "PROTON_LOG";
+/**
+ * Proton's log beside the trainer command, for bug reports: `on` writes
+ * PROTON_LOG=1 when the variable is not set yet, otherwise the value the
+ * plugin wrote earlier (`owned`) is taken out again. A value someone else set
+ * always stays. Returns the launch options and whether the plugin now owns it.
+ */
+export function setProtonLog(source: string, on: boolean, owned: boolean): { value: string; owned: boolean } {
+  const options = LaunchOptions.parse(source);
+  const current = options.getEnvironment(protonLog);
+  const ours = owned && current === "1";
+  if (on && (ours || options.hasEnvironment(protonLog))) return { value: source, owned: ours };
+  if (!on && !ours) return { value: source, owned: false };
+  const result = options.edit([{ kind: on ? "enable" : "disable", definition: environment(protonLog, on ? "1" : "") }]);
+  if (!result.ok) throw new Error("Could not update launch options safely.");
+  return { value: result.value.toString(), owned: on };
 }

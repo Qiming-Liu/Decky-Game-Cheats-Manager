@@ -1,3 +1,4 @@
+import timing from "../data/timing.json";
 import { FileSelectionType, openFilePicker, toaster } from "@decky/api";
 import { Focusable } from "@decky/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -20,7 +21,7 @@ export default function LogPanel({ height }: { height: string }) {
   useEffect(() => {
     void loadLog().catch(() => {});
     // The log keeps growing while the page is open.
-    const timer = window.setInterval(() => { void loadLog().catch(() => {}); }, 3000);
+    const timer = window.setInterval(() => { void loadLog().catch(() => {}); }, timing.log_poll_ms);
     return () => window.clearInterval(timer);
   }, []);
   // Keep the newest lines in view while the log grows, unless the user scrolled up.

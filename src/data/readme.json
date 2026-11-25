@@ -1,0 +1,8 @@
+{
+  "branch": "main",
+  "anchor": "deckygcm",
+  "translations": {
+    "zh-CN": "README.zh-CN.md",
+    "zh-TW": "README.zh-TW.md"
+  }
+}

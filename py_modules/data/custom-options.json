@@ -1,0 +1,12 @@
+{
+  "max_options": 200,
+  "max_definitions": 50,
+  "max_name_length": 80,
+  "max_definition_length": 1024,
+  "presets": [
+    {"id": "preset-lsfg", "preset": "lsfg", "name": "", "definitions": ["~/lsfg"]},
+    {"id": "preset-optiscaler", "preset": "optiscaler", "name": "", "definitions": ["~/fgmod/fgmod"]},
+    {"id": "preset-optiscaler-remove", "preset": "optiscalerRemove", "name": "", "definitions": ["~/fgmod/fgmod-uninstaller.sh"]},
+    {"id": "preset-mako", "preset": "mako", "name": "", "definitions": ["~/.local/bin/mako-run"]}
+  ]
+}

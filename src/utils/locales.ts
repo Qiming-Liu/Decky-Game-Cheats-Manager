@@ -29,12 +29,14 @@ function translations(messages: Messages) {
     recentLines: (count: number) => messages.recentLines.replace("{count}", () => String(count)),
     exportedTo: (path: string) => messages.exportedTo.replace("{path}", () => path),
     newVersion: (version: string) => messages.newVersion.replace("{version}", () => version),
+    testBuildTitle: (version: string) => messages.testBuildTitle.replace("{version}", () => version),
     updatedAt: (date: string) => messages.updatedAt.replace("{date}", () => date),
     catalogProgress: (done: number, total: number) =>
       messages.catalogProgress.replace("{done}", () => String(done)).replace("{total}", () => String(total)),
     tableCount: (count: number) => messages.tableCount.replace("{count}", () => String(count)),
     viaCheatEngine: (version: string) => messages.viaCheatEngine.replace("{version}", () => version).trim(),
     ceInstalled: (version: string) => messages.ceInstalled.replace("{version}", () => version).trim(),
+    tableUnconfirmed: (name: string) => messages.tableUnconfirmed.replace("{name}", () => name),
     panelAttached: (process: string) => messages.panelAttached.replace("{process}", () => process),
     panelEntries: (count: number, active: number) =>
       messages.panelEntries.replace("{count}", () => String(count)).replace("{active}", () => String(active)),
@@ -42,6 +44,9 @@ function translations(messages: Messages) {
     panelValueHint: (type: string, value: string) =>
       messages.panelValueHint.replace("{type}", () => type).replace("{value}", () => value),
     panelOnCount: (count: number) => messages.panelOnCount.replace("{count}", () => String(count)),
+    trainerNoWindow: (seconds: number) => messages.trainerNoWindow.replace("{seconds}", () => String(seconds)),
+    trainerCrashed: (code: string) => messages.trainerCrashed.replace("{code}", () => code),
+    trainerFailed: (code: string) => messages.trainerFailed.replace("{code}", () => code),
   };
 }
 

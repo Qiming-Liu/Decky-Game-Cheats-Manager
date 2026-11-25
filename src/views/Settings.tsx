@@ -1,10 +1,14 @@
+import { isActiveJob } from "../domain/trainerList";
 import { Focusable, Navigation, PanelSection, PanelSectionRow, useQuickAccessVisible } from "@decky/ui";
 import { type ReactNode, useEffect, useState } from "react";
 import { cancelDownload, cleanupTrash } from "../utils/backend";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
 import { refreshUpdate, useUpdate } from "../hooks/useUpdate";
-import { useRunningTable } from "../hooks/useRunningTable";
+import { type RunningTable, useRunningGame } from "../hooks/useRunningTable";
 import TablePanel from "./TablePanel";
+import TrainerStatus from "./TrainerStatus";
+import { useGameEnvironment } from "../hooks/useGameEnvironment";
+import { collectorAtRisk, environmentHints } from "../domain/environment";
 import { errorMessage, menuItemLabel, useTranslations } from "../utils/i18n";
 import { ABOUT_ROUTE, SETTINGS_ROUTE } from "../utils/routes";
 import { colors, FOCUS_CSS, IconButton, jobStateLabel } from "./shell";
@@ -12,7 +16,11 @@ import { NAV_BUTTON, NAV_GLYPH_CSS, NavGlyph } from "./AdaptiveNavGlyph";
 import { ChevronRightIcon, CrossIcon, GearIcon, InfoIcon, LibraryIcon, PluginIcon } from "./icons";
 import { UpdateDot } from "./update";
 
-/** The Quick Access panel: the way to the settings page, running downloads and how to open a game page. */
+/**
+ * The Quick Access panel: how to open a game page, the way to the settings
+ * and running downloads. While a game runs with trainers, what they did comes
+ * first; with a table, the table's switches take the place of the first two.
+ */
 export default function Settings() {
   const t = useTranslations();
   const { latest } = useUpdate();
@@ -24,8 +32,10 @@ export default function Settings() {
   }, [visible]);
   const [message, setMessage] = useState("");
   const [cancelling, setCancelling] = useState(new Set<string>());
-  const active = useDownloads().filter(job => ["queued", "downloading", "extracting"].includes(job.state));
-  const running = useRunningTable();
+  const active = useDownloads().filter(isActiveJob);
+  const game = useRunningGame();
+  const running = game?.table ? game as RunningTable : undefined;
+  const environment = useGameEnvironment(game?.appId, game?.programs ?? [], "", Boolean(game));
   async function cancel(jobId: string, appId: string) {
     setCancelling(previous => new Set(previous).add(jobId));
     try { trackDownload(await cancelDownload({ appId, jobId })); }
@@ -36,12 +46,13 @@ export default function Settings() {
   // the rows and buttons shared with the pages bring theirs.
   return <PanelSection>
     <style>{".gcm-panel-link.gpfocus { background: #dcdedf !important; color: #0e141b !important; }" + NAV_GLYPH_CSS + FOCUS_CSS}</style>
-    <PanelSectionRow><HowTo /></PanelSectionRow>
+    {game && <TrainerStatus key={game.appId} appId={game.appId} hints={environmentHints(environment, game.untracked)} />}
     {!running && <>
+      <PanelSectionRow><HowTo /></PanelSectionRow>
       <PanelLink route={SETTINGS_ROUTE} icon={<GearIcon />}>{t.advancedSettings}</PanelLink>
       <PanelLink route={ABOUT_ROUTE} icon={<InfoIcon />}>{t.aboutPlugin}{latest && <UpdateDot />}</PanelLink>
     </>}
-    {running && <TablePanel key={running.table} running={running} />}
+    {running && <TablePanel key={running.table} running={running} collectorAtRisk={collectorAtRisk(environment)} />}
     {active.length > 0 && <PanelSectionRow>
       <Focusable flow-children="column" aria-label={t.downloadsTitle} style={{
         boxSizing: "border-box", padding: "12px 14px", borderRadius: 4, background: "rgba(0,0,0,.28)", marginBottom: 14,

@@ -1,0 +1,7 @@
+{
+  "default_folder": "DeckyGCM",
+  "program_extensions": [".exe", ".bat"],
+  "table_extensions": [".ct", ".cetrainer"],
+  "max_folder_name_bytes": 150,
+  "trash_max_age_seconds": 86400
+}

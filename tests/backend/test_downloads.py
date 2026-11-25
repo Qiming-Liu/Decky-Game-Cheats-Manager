@@ -8,9 +8,12 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
+import download_jobs
 import main
 import trainer_db
 import trainer_download
+import library_settings
+import library_storage
 import trainer_library
 
 from library import LibraryCase, zip_bytes
@@ -24,6 +27,17 @@ class DownloadsTest(LibraryCase):
         self.assertFalse(result["success"])
         start.assert_not_called()
 
+    def test_cheat_engine_is_installed_beside_the_game_folders_wherever_it_was_found(self):
+        engine = {"id": "engine", "trainer_name": "Cheat Engine 7", "game_name": "none", "custom_name": "Cheat Engine", "url": "x"}
+        with patch.dict(main.Plugin._last_results, {"engine": engine}), \
+                patch("trainer_download.start", return_value={"id": "job"}) as start:
+            result = asyncio.run(main.Plugin().download_trainer("engine", "42", str(self.library)))
+            self.assertTrue(result["success"], result)
+            self.assertEqual(start.call_args.kwargs["app_id"], "")
+            # An app ID no folder record would accept is refused before anything is made.
+            refused = asyncio.run(main.Plugin().download_trainer("engine", "9" * 25, str(self.library)))
+            self.assertEqual(refused["error"], "invalid_app_id")
+
     def test_cancel_download_checks_game_and_signals_worker(self):
         token = threading.Event()
         trainer_download.manager._jobs["cancel"] = {"id": "cancel", "state": "downloading", "app_ids": ["42"]}
@@ -32,10 +46,30 @@ class DownloadsTest(LibraryCase):
             with self.assertRaises(ValueError):
                 trainer_download.cancel("cancel", "43")
             self.assertFalse(token.is_set())
+            # A game's download is not cancelled without naming the game.
+            with self.assertRaises(ValueError):
+                trainer_download.cancel("cancel", "")
             self.assertEqual(trainer_download.cancel("cancel", "42")["state"], "downloading")
             self.assertTrue(token.is_set())
         finally:
             trainer_download.manager._cancel.pop("cancel", None)
+
+    def test_a_download_for_no_game_is_cancelled_without_one(self):
+        token = threading.Event()
+        trainer_download.manager._jobs["engine"] = {"id": "engine", "state": "downloading", "app_ids": [], "trainer_name": "Cheat Engine"}
+        trainer_download.manager._cancel["engine"] = token
+        try:
+            plugin = main.Plugin()
+            refused = asyncio.run(plugin.manage_trainer("cancel", "42", "", "engine"))
+            self.assertFalse(refused["success"])
+            self.assertFalse(token.is_set())
+            # Every other action still needs a game.
+            self.assertEqual(asyncio.run(plugin.manage_trainer("delete", "", "", "engine"))["error"], "invalid_app_id")
+            cancelled = asyncio.run(plugin.manage_trainer("cancel", "", "", "engine"))
+            self.assertTrue(cancelled["success"], cancelled)
+            self.assertTrue(token.is_set())
+        finally:
+            trainer_download.manager._cancel.pop("engine", None)
 
     def test_cancelling_during_progress_cleans_files_and_never_publishes(self):
         def download(url, directory, callback):
@@ -75,7 +109,7 @@ class DownloadsTest(LibraryCase):
             linked.symlink_to(self.library, target_is_directory=True)
         except OSError:
             self.skipTest("symlinks unavailable")
-        trainer_library.write_json(trainer_library.SETTINGS_PATH, {"directory": str(linked)})
+        library_storage.write_json(library_settings.SETTINGS_PATH, {"directory": str(linked)})
         job = self._install()
         self.assertEqual(job["state"], "done", job["error"])
         self.assertEqual(job["path"], trainer_library.scan("1245620", "Elden Ring")["trainers"][0]["path"])
@@ -139,7 +173,7 @@ class DownloadsTest(LibraryCase):
     def test_switching_folder_during_download_publishes_to_latest_path(self):
         job = self._install(switch=True)
         self.assertEqual(job["state"], "done", job["error"])
-        self.assertEqual(Path(job["path"]).parent, (self.root / "latest-library").resolve())
+        self.assertEqual(Path(job["path"]).parent.parent, (self.root / "latest-library").resolve())
         self.assertEqual(len(trainer_library.scan()["trainers"]), 1)
         self.assertEqual(list(self.library.iterdir()), [])
         self.assertEqual(list((self.root / "new-library").iterdir()), [])
@@ -261,3 +295,42 @@ class DownloadsTest(LibraryCase):
         installed = trainer_library.scan("42")["trainers"]
         self.assertEqual({item["version"] for item in installed}, {"1", "2"})
         self.assertEqual(len(trainer_library.scan("43")["trainers"]), 1)
+
+    def test_a_repeated_request_for_a_finished_download_does_not_download_again(self):
+        trainer = {"id": "finished", "trainer_name": "Trainer", "url": "same/url", "version": "1"}
+        downloads = []
+
+        def download(url, directory, callback):
+            downloads.append(directory)
+            Path(directory).mkdir(parents=True)
+            target = Path(directory) / "Trainer.exe"
+            target.write_bytes(b"trainer")
+            return str(target)
+
+        async def run():
+            first = await trainer_download.start(trainer, app_id="42")
+            await trainer_download.manager.wait_idle()
+            # The page asked again before it had read the library: the finished copy answers.
+            again = await trainer_download.start(trainer, app_id="42")
+            await trainer_download.manager.wait_idle()
+            return first, again
+
+        with patch("trainer_download.data_source.get_signed_download_url", return_value="https://example.test"), patch("trainer_download.http_download.download", side_effect=download):
+            first, again = asyncio.run(run())
+            self.assertEqual(again["id"], first["id"])
+            self.assertEqual(len(downloads), 1)
+            # A copy outside the library the request is for does not answer it.
+            self.assertTrue(download_jobs.same_download(again, trainer, "42", str(self.library)))
+            self.assertFalse(download_jobs.same_download(again, trainer, "42", str(self.library / "elsewhere")))
+            # Once that copy is gone, the trainer downloads again.
+            for item in trainer_library.scan("42")["trainers"]:
+                removed = asyncio.run(main.Plugin().manage_trainer("delete", "42", str(self.library), item["id"]))
+                self.assertTrue(removed["success"], removed)
+
+            async def later():
+                job = await trainer_download.start(trainer, app_id="42")
+                await trainer_download.manager.wait_idle()
+                return job
+            # (Served from the deleted-file cache: no second network download.)
+            self.assertNotEqual(asyncio.run(later())["id"], first["id"])
+        self.assertEqual(len(trainer_library.scan("42")["trainers"]), 1)

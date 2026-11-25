@@ -1,17 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
-import ts from "typescript";
+import { load } from "./support/load.mjs";
 
-const source = readFileSync(new URL("../../src/domain/compatTool.ts", import.meta.url), "utf8");
-const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true } });
-const module = { exports: {} };
-vm.runInNewContext(outputText, {
-  module, exports: module.exports,
-  require: name => JSON.parse(readFileSync(new URL(`../../src/domain/${name}`, import.meta.url), "utf8")),
-});
-const { isCompatToolUnsupported } = module.exports;
+const { isCompatToolUnsupported } = load("src/domain/compatTool");
 
 test("builds bundling Wine Mono 11.2.0 are unsupported", () => {
   for (const name of ["Proton 11.0-2", "Proton 11.0-2e", "Proton Hotfix", "GE-Proton11-2", "GE-Proton11-6",

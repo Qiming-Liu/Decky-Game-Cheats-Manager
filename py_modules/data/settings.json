@@ -1,0 +1,10 @@
+{
+  "launch_delays": [0, 5, 10, 15, 30, 60],
+  "defaults": {
+    "allow_multiple": false,
+    "auto_attach": true,
+    "launch_delay": 0,
+    "proton_log": false,
+    "skip_launcher_check": false
+  }
+}

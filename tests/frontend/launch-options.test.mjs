@@ -1,23 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
-import ts from "typescript";
+import { load } from "./support/load.mjs";
 
-function loadDomain(steam = {}, appStore = undefined) {
-  const cache = new Map();
-  function load(name) {
-    if (cache.has(name)) return cache.get(name);
-    const source = readFileSync(new URL(`../../src/domain/${name}.ts`, import.meta.url), "utf8");
-    const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } });
-    const module = { exports: {} };
-    cache.set(name, module.exports);
-    vm.runInNewContext(outputText, { module, exports: module.exports, require: name => load(name.replace("./", "")),
-      SteamClient: { Apps: steam }, appStore, window: { setTimeout, clearTimeout } });
-    return module.exports;
-  }
-  return { ...load("trainerCommand"), ...load("steam"), ...load("common"), ...load("custom"), ...load("options") };
-}
+const loadDomain = (steam = {}, appStore = undefined) => load(
+  ["trainerCommand", "steam", "common", "custom", "options", "definitions"].map(name => `src/domain/${name}`),
+  { globals: { SteamClient: { Apps: steam }, appStore, window: { setTimeout, clearTimeout } } });
 
 test("the trainer command round-trips without altering unrelated launch source", () => {
   const { setTrainerCommand, trainerCommand } = loadDomain();
@@ -359,4 +346,32 @@ test("tables are launched through Cheat Engine, named once before the programs",
   assert.equal(launcherCheatEngine(trainerCommand(value), script), outside);
   const next = setTrainerCommand(value, launcherCommand(script, ["/home/deck/Trainer.exe"]), ["/home/deck"], { script });
   assert.ok(!next.includes("PRESSURE_VESSEL_FILESYSTEMS_RW"), next);
+});
+
+test("a command written outside the launcher is told apart, and taking it over keeps its program", () => {
+  const { setTrainerCommand, trainerCommand, launcherCommand, launcherPrograms, runsLauncher } = loadDomain();
+  const script = "/home/deck/homebrew/settings/DeckyGCM/launch.bat";
+  const program = "/home/deck/Trainers/Game Trainer.exe";
+  // Another tool's single-path value, quoted twice.
+  const foreign = `LANG=C PROTON_REMOTE_DEBUG_CMD=''"'"'${program}'"'"'' %command%`;
+  const command = trainerCommand(foreign);
+  assert.equal(runsLauncher(command, script), false);
+  assert.deepEqual([...launcherPrograms(command, script)], [program]);
+  const taken = setTrainerCommand(foreign, launcherCommand(script, [program]), ["/home/deck/Trainers"], { script });
+  assert.equal(runsLauncher(trainerCommand(taken), script), true);
+  assert.deepEqual([...launcherPrograms(trainerCommand(taken), script)], [program]);
+  assert.ok(taken.startsWith("LANG=C "), taken);
+});
+
+test("PROTON_LOG goes with the trainers and only the plugin's own value leaves again", () => {
+  const { setProtonLog: run } = loadDomain();
+  // The domain runs in its own context; copy results into plain objects of this one.
+  const setProtonLog = (...args) => ({ ...run(...args) });
+  const on = setProtonLog("MANGOHUD=1 %command%", true, false);
+  assert.deepEqual(on, { value: "MANGOHUD=1 PROTON_LOG=1 %command%", owned: true });
+  assert.deepEqual(setProtonLog(on.value, false, true), { value: "MANGOHUD=1 %command%", owned: false });
+  // Someone else's value stays, whatever the setting says.
+  assert.deepEqual(setProtonLog("PROTON_LOG=1 %command%", true, false), { value: "PROTON_LOG=1 %command%", owned: false });
+  assert.deepEqual(setProtonLog("PROTON_LOG=1 %command%", false, false), { value: "PROTON_LOG=1 %command%", owned: false });
+  assert.deepEqual(setProtonLog("PROTON_LOG=0 %command%", false, true), { value: "PROTON_LOG=0 %command%", owned: false });
 });

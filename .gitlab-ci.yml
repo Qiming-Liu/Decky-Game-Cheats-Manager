@@ -4,7 +4,7 @@
 # Merge requests, pushes to main and manual runs (Build > Pipelines > Run
 # pipeline, or the API, e.g. glab ci run) build, type-check and test the plugin and build the trainer starter.
 # Releases are not made here: they are built and packaged locally, then uploaded
-# to GitLab. The native job's artifact (bin/gcm-start.exe, bin/gcm-pipewait.dll,
+# to GitLab. The native job's artifact (the starter and compatibility DLLs,
 # built with MinGW-w64) may be used for a release; download it from the
 # pipeline of the commit being released.
 
@@ -69,6 +69,7 @@ native:
     paths:
       - bin/gcm-start.exe
       - bin/gcm-pipewait.dll
+      - bin/gcm-ce-context.dll
     expire_in: 3 months
 
 plugin-manifest:

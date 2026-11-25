@@ -7,11 +7,12 @@ import time
 import uuid
 from pathlib import Path
 import decky
+import plugin_data
 from library_storage import METADATA, read_json, write_json, remove
 
 TRASH_DIRECTORY = ".gcm-trash"
 TRASH_RECORD = ".gcm-trash.json"
-TRASH_MAX_AGE = 24 * 60 * 60
+TRASH_MAX_AGE = plugin_data.load("library")["trash_max_age_seconds"]
 OWNER_RECORD = ".gcm-owner.json"
 OWNER = {"owner": "decky-game-cheats-manager", "schema_version": 1}
 
@@ -97,8 +98,11 @@ def cleanup_trash(root: Path):
         decky.logger.warning("Could not inspect the trainer trash folder.")
 
 
-def restore_trainer(root: Path, trainer: dict, app_ids: list[str], commit=None, check=lambda: None):
-    """Restore an unchanged download without a network request or an age check."""
+def restore_trainer(root: Path, trainer: dict, app_ids: list[str], commit=None, check=lambda: None, destination=None):
+    """Restore an unchanged download without a network request or an age check.
+
+    `destination`, when given, returns the folder to restore into (made only
+    once a cached copy is found); otherwise it is the library root."""
     try:
         migrate_legacy(root)
         trash = _trash_root(root)
@@ -120,19 +124,19 @@ def restore_trainer(root: Path, trainer: dict, app_ids: list[str], commit=None, 
             name = record.get("original_name")
             if not isinstance(name, str) or not name or name.startswith(".") or name == "trash" or Path(name).name != name:
                 continue
-            target = root / name
-            if os.path.lexists(target):
-                continue
             hashes = metadata.get("content_hashes")
             if not isinstance(hashes, dict) or not hashes or content_hashes(content, check) != hashes:
                 continue
             check()
+            target = (destination() if destination else root) / name
+            if os.path.lexists(target):
+                continue
             if commit is None:
                 metadata["app_ids"] = list(app_ids)
                 write_json(metadata_path, metadata)
                 content.rename(target)
             else:
-                commit(content, target, metadata)
+                commit(content, target, metadata, root)
             # Publication is committed; cleanup must not turn success into a failure.
             try:
                 remove(item)

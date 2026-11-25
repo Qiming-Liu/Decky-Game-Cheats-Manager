@@ -1,14 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
-import ts from "typescript";
+import { load } from "./support/load.mjs";
 
-const source = readFileSync(new URL("../../src/domain/trainer.ts", import.meta.url), "utf8");
-const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
-const module = { exports: {} };
-vm.runInNewContext(outputText, { module, exports: module.exports });
-const { installedVersion, activeVersion } = module.exports;
+const { installedVersion, activeVersion, downloadedVersion, unreadDownloads } = load("src/domain/trainer");
 
 test("an installed version does not prevent downloading another version", () => {
   const trainer = { id: "same-url", version: "2" };
@@ -31,4 +25,18 @@ test("only the active task for the displayed version disables its download", () 
   assert.equal(activeVersion(trainer, [old]), undefined);
   assert.equal(activeVersion(trainer, [old, current]), current);
   assert.equal(activeVersion(trainer, [{ ...current, state: "done" }]), undefined);
+});
+
+test("a finished download counts as downloaded until the library has been read again", () => {
+  const trainer = { id: "same-url", version: "2" };
+  const done = { id: "job", trainer_id: trainer.id, version: "2", state: "done", app_ids: ["42"] };
+  const unread = unreadDownloads([done, { ...done, id: "running", state: "downloading" }], "42", new Set());
+  assert.deepEqual(unread, [done]);
+  assert.equal(downloadedVersion(trainer, [], unread), true);
+  // Read again without it (deleted since), or finished for another game: downloadable.
+  assert.deepEqual(unreadDownloads([done], "42", new Set(["job"])), []);
+  assert.deepEqual(unreadDownloads([done], "43", new Set()), []);
+  assert.equal(downloadedVersion(trainer, [], []), false);
+  assert.equal(downloadedVersion(trainer, [], [{ ...done, version: "1" }]), false);
+  assert.equal(downloadedVersion(trainer, [{ trainer_id: trainer.id, version: "2" }], []), true);
 });

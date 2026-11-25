@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import main
+import library_settings
 import trainer_download
 import trainer_library
 
@@ -32,10 +33,10 @@ class LibraryCase(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.library = self.root / "trainers"
         self.library.mkdir()
-        settings = patch.object(trainer_library, "SETTINGS_PATH", str(self.root / "settings.json"))
+        settings = patch.object(library_settings, "SETTINGS_PATH", str(self.root / "settings.json"))
         settings.start()
         self.addCleanup(settings.stop)
-        default = patch.object(trainer_library, "DEFAULT_DIRECTORY", str(self.root / "DeckyGCM"))
+        default = patch.object(library_settings, "DEFAULT_DIRECTORY", str(self.root / "DeckyGCM"))
         default.start()
         self.addCleanup(default.stop)
         trainer_library.set_directory(str(self.library))
@@ -44,10 +45,10 @@ class LibraryCase(unittest.TestCase):
         downloads.start()
         self.addCleanup(downloads.stop)
 
-    def _install(self, filename="trainer.zip", payload=None, app_id="1245620", switch=False):
+    def _install(self, filename="trainer.zip", payload=None, app_id="1245620", switch=False, version="1.0"):
         payload = payload if payload is not None else zip_bytes({"v1/Trainer.exe": b"trainer", "instructions.txt": b"help"})
         trainer = {"id": "example", "trainer_name": "[FL] Elden Ring Trainer", "game_name": "Elden Ring",
-                   "origin": "fling_main", "version": "1.0", "url": "catalog/trainer.zip"}
+                   "origin": "fling_main", "version": version, "url": "catalog/trainer.zip"}
 
         def download(url, directory, callback):
             Path(directory).mkdir(parents=True)
@@ -74,8 +75,8 @@ class LibraryCase(unittest.TestCase):
         job = self._install()
         self.assertEqual(job["state"], "done", job["error"])
         item = trainer_library.scan()["trainers"][0]
-        trainer_library.delete(item["id"], trainer_library.directory(), "1245620")
-        cached = next(item for item in (Path(trainer_library.directory()) / ".gcm-trash").iterdir() if item.is_dir())
+        trainer_library.delete(item["id"], library_settings.directory(), "1245620")
+        cached = next(item for item in (Path(library_settings.directory()) / ".gcm-trash").iterdir() if item.is_dir())
         trainer = {"id": "example", "trainer_name": "[FL] Elden Ring Trainer", "game_name": "Elden Ring",
                    "origin": "fling_main", "version": "1.0", "url": "catalog/trainer.zip"}
         return job, cached, trainer
@@ -118,7 +119,7 @@ class LibraryCase(unittest.TestCase):
             self.assertEqual(done["state"], "cancelled")
             self.assertIsNone(done["path"])
 
-        target = "trainer_cache.content_hashes" if restore else "trainer_library.content_hashes"
+        target = "trainer_cache.content_hashes"
         with patch(target, side_effect=hashing), patch("trainer_download.data_source.get_signed_download_url", return_value="https://example.test"), patch("trainer_download.http_download.download", side_effect=download):
             asyncio.run(run())
         if restore:

@@ -1,3 +1,4 @@
+import timing from "../data/timing.json";
 import { useSyncExternalStore } from "react";
 import { DownloadJob, getDownloads } from "../utils/backend";
 import { invalidateCheatEngine } from "./useCheatEngine";
@@ -31,7 +32,7 @@ async function poll(epoch: number) {
   } catch {
     // Temporary RPC errors do not stop synchronization.
   } finally {
-    if (epoch === generation && listeners.size) timer = window.setTimeout(() => { void poll(epoch); }, 1500);
+    if (epoch === generation && listeners.size) timer = window.setTimeout(() => { void poll(epoch); }, timing.downloads_poll_ms);
   }
 }
 

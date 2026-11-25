@@ -1,0 +1,12 @@
+{
+  "page_size": 5,
+  "origin_labels": {
+    "fling_main": "FLiNG",
+    "fling_archive": "FLiNG",
+    "xiaoxing": "XiaoXing",
+    "gcm": "GCM",
+    "the_cheat_script": "Cheat Table",
+    "ct_other": "Cheat Table"
+  },
+  "container_shared_roots": ["/home", "/var/home", "/media", "/mnt", "/run/media", "/opt", "/srv"]
+}

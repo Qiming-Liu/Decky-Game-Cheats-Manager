@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path
 
+import attach_memory
 import game_window
 import trainer_table
 
@@ -23,6 +24,16 @@ ATTACH_SECONDS = 180
 ATTACH_POLL = 2.0
 # The same process seen this many times in a row is taken as the game.
 ATTACH_STABLE = 2
+# With a clue to the game's process (attach_memory), attaching waits longer
+# for it: launchers, sign-in and shader compiling come first. Without the
+# clued process after CLUE_ALONE seconds, the usual ranking picks one, and the
+# clued process still replaces it if it shows up later.
+ATTACH_CLUE_SECONDS = 600
+CLUE_ALONE = 60
+# A running bridge rewrites its state every second (it carries the time). An
+# older state was left by an earlier game session that ended without the
+# panel cleaning up, and its process ID means nothing now.
+STATE_FRESH = 10
 _lock = threading.Lock()
 _last_sent = 0
 _stop = threading.Event()
@@ -125,30 +136,48 @@ def state(table: str) -> dict | None:
 def _attach_when_ready(table: str, app_id: str, programs: list[str], proc: Path) -> None:
     """Points Cheat Engine at the game once the game's process has settled.
 
-    The candidates are Cheat Engine's own process list from its state, ranked
-    by game_window.rank; the first is usually the one with the game's window.
-    It can change while the game starts (a launcher's window first), so a
-    process ID is sent only after it led ATTACH_STABLE times in a row, and
-    again if another one settles before Cheat Engine reports a process. Once
-    attached, only the player changes it, from the panel."""
+    The candidates are Cheat Engine's own process list from its state. A
+    process named by a clue (attach_memory: the player's last pick, then the
+    table's own executables) comes first; otherwise, and only after
+    CLUE_ALONE seconds when there are clues, the first by game_window.rank,
+    usually the one with the game's window. That can change while the game
+    starts (a launcher's window first), so a process ID is sent only after it
+    led ATTACH_STABLE times in a row. Without clues this ends once Cheat
+    Engine reports a process. With clues it ends when that process is a
+    clued one; until then a clued process that appears replaces the ranked
+    pick. A process the plugin did not send (the player's pick from the
+    panel, the table's own Lua) is never replaced."""
     # Cheat Engine writes its state only into an existing folder, and the
     # list to pick from is in that state.
     runtime_dir(table).mkdir(exist_ok=True)
-    sent, last, count = 0, 0, 0
-    deadline = time.monotonic() + ATTACH_SECONDS
+    clues = attach_memory.clues(app_id, table)
+    begun = time.monotonic()
+    deadline = begun + (ATTACH_CLUE_SECONDS if clues else ATTACH_SECONDS)
+    sent: set[int] = set()
+    clued, last, count = 0, 0, 0
     while time.monotonic() < deadline and not _stop.wait(ATTACH_POLL):
         current = state(table)
-        if not current:
+        if not current or current.get("age", 0) > STATE_FRESH:
             continue
-        if current.get("pid"):
+        attached = current.get("pid") or 0
+        if attached and (not clues or attached not in sent or attached == clued):
             return
         ranked = game_window.rank(current.get("processes") or [], app_id, programs, proc)
-        pid = ranked[0]["pid"] if ranked else 0
+        pid, by_clue = 0, False
+        for name in clues:
+            match = next((row for row in ranked if row["name"].lower() == name), None)
+            if match:
+                pid, by_clue = match["pid"], True
+                break
+        if not pid and not attached and (not clues or time.monotonic() - begun >= CLUE_ALONE):
+            pid = ranked[0]["pid"] if ranked else 0
         count = count + 1 if pid and pid == last else (1 if pid else 0)
         last = pid
-        if count >= ATTACH_STABLE and pid != sent:
+        if count >= ATTACH_STABLE and pid != attached and pid not in sent:
             send(table, {"attach": pid})
-            sent = pid
+            sent.add(pid)
+            if by_clue:
+                clued = pid
 
 
 def watch_attach(table: str, app_id: str, programs: list[str] = (), proc: Path = Path("/proc")) -> bool:

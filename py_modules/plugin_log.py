@@ -10,11 +10,14 @@ This module does not import ``decky``; the caller passes the logger and paths.
 """
 from __future__ import annotations
 
+import faulthandler
 import functools
 import logging
 import logging.handlers
 import os
 import re
+import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, TypeVar
@@ -54,6 +57,55 @@ class RedactingFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         return redact(super().format(record))
+
+
+class SyncedFileHandler(logging.handlers.RotatingFileHandler):
+    """Every record reaches the disk before the next one is written: the lines
+    just before a crash, a kill or a frozen system are the ones that matter."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        try:
+            if self.stream is not None:
+                os.fsync(self.stream.fileno())
+        except (OSError, ValueError):
+            pass
+
+
+# The previous run's state, kept beside the log: a marker present while the
+# plugin runs (left behind when it was killed or crashed) and what Python's
+# fault handler wrote when the process died in native code.
+CRASH_TAIL = 16 * 1024
+
+
+def install_exception_hooks(logger: logging.Logger) -> None:
+    """Uncaught exceptions on any thread go into the log, not only to stderr."""
+    previous = sys.excepthook
+
+    def on_exception(kind, value, trace):
+        logger.error("Uncaught exception", exc_info=(kind, value, trace))
+        previous(kind, value, trace)
+
+    def on_thread_exception(args):
+        if args.exc_type is SystemExit:
+            return
+        name = args.thread.name if args.thread is not None else "?"
+        logger.error("Uncaught exception in thread %s", name,
+                     exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+    sys.excepthook = on_exception
+    threading.excepthook = on_thread_exception
+
+
+def log_loop_errors(loop, logger: logging.Logger) -> None:
+    """Errors in asyncio tasks nobody awaits go into the log as well."""
+    def handle(loop, context):
+        error = context.get("exception")
+        logger.error("Unhandled error in a background task: %s", context.get("message", ""),
+                     exc_info=(type(error), error, error.__traceback__) if error else None)
+        loop.default_exception_handler(context)
+
+    loop.set_exception_handler(handle)
 
 
 USER_TAG = "[user]"
@@ -115,11 +167,18 @@ class PluginLog:
     def __init__(self, directory: Path | str, name: str) -> None:
         self.name = name
         self.path = Path(directory) / f"{name}.log"
+        self.running_marker = Path(directory) / f"{name}.running"
+        self.crash_path = Path(directory) / f"{name}.crash"
         self._handler: logging.Handler | None = None
         self._logger: logging.Logger | None = None
+        self._crash_file = None
 
     def attach(self, logger: logging.Logger, banner: str) -> None:
-        """Send the logger's records to the file. A second call does nothing."""
+        """Send the logger's records to the file. A second call does nothing.
+
+        Also reports how the previous run ended when it did not stop normally,
+        and has Python write a fatal error (a crash in native code) to a file
+        that the next start copies into the log."""
         if self._handler is not None:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,7 +187,7 @@ class PluginLog:
             if getattr(old, "plugin_log_path", None) == str(self.path):
                 logger.removeHandler(old)
                 old.close()
-        handler = logging.handlers.RotatingFileHandler(
+        handler = SyncedFileHandler(
             self.path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8", delay=True
         )
         handler.setLevel(logging.INFO)
@@ -139,10 +198,56 @@ class PluginLog:
         logger.addHandler(handler)
         self._handler, self._logger = handler, logger
         logger.info(banner)
+        self._report_previous_run(logger)
+        try:
+            self.running_marker.write_text(f"{datetime.now().strftime(TIME_FORMAT)} pid {os.getpid()}\n",
+                                           encoding="utf-8")
+        except OSError:
+            pass
+        try:
+            self._crash_file = open(self.crash_path, "a", encoding="utf-8")
+            faulthandler.enable(self._crash_file, all_threads=True)
+        except OSError:
+            self._crash_file = None
+
+    def _report_previous_run(self, logger: logging.Logger) -> None:
+        try:
+            started = self.running_marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            started = None
+        if started is not None:
+            logger.warning("The previous run (started %s) did not stop normally: it crashed, was killed, "
+                           "or the system stopped", started)
+        try:
+            with open(self.crash_path, "rb") as source:
+                source.seek(0, os.SEEK_END)
+                size = source.tell()
+                source.seek(max(0, size - CRASH_TAIL))
+                crash = source.read().decode("utf-8", "replace").strip()
+        except OSError:
+            crash = ""
+        if crash:
+            logger.error("The previous run died with a fatal error:\n%s", crash)
+            try:
+                open(self.crash_path, "w").close()
+            except OSError:
+                pass
 
     def detach(self) -> None:
+        """A normal stop: the marker goes, so the next start reports nothing."""
         if self._handler is None or self._logger is None:
             return
+        if self._crash_file is not None:
+            try:
+                faulthandler.disable()
+                self._crash_file.close()
+            except (OSError, ValueError):
+                pass
+            self._crash_file = None
+        try:
+            self.running_marker.unlink()
+        except OSError:
+            pass
         self._logger.removeHandler(self._handler)
         self._handler.close()
         self._handler = self._logger = None
@@ -190,9 +295,11 @@ class PluginLog:
         downloads = Path(home) / "Downloads"
         return str(downloads if downloads.is_dir() else Path(home))
 
-    def export(self, home: Path | str, folder: Path | str | None = None) -> str:
+    def export(self, home: Path | str, folder: Path | str | None = None,
+               appendix: list[tuple[str, str]] | None = None) -> str:
         """Write the whole log, oldest first, into ``folder`` (~/Downloads when
         none is given) and return its path with ~ for the home directory.
+        ``appendix`` sections (title, text) follow the log as they are.
         Raises OSError when it cannot be written."""
         home = Path(home)
         created = False
@@ -215,6 +322,8 @@ class PluginLog:
                     continue
                 # Older files may predate a redaction rule.
                 output.write(redact(text))
+            for title, text in appendix or ():
+                output.write(f"\n===== {title} =====\n{text}\n")
         # A root backend must leave the files to the user who opens them.
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             owner = home.stat()

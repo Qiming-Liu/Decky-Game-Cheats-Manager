@@ -41,33 +41,42 @@ class ReleasePackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "source"
             root.mkdir()
-            for name in ("package.json", "LICENSE", "README.md"):
+            for name in ("package.json", "LICENSE", "README.md", "README.zh-CN.md", "README.zh-TW.md"):
                 (root / name).write_text("{}")
             (root / "plugin.json").write_text('{"name": "DeckyGCM", "flags": ["debug", "root"]}')
             (root / "main.py").write_text("class Plugin: pass\n")
-            for name in ("py_modules/_gcm_core", "py_modules/_vendor/requests", "dist", "db", "gcm", "bin"):
+            for name in ("py_modules/_gcm_core", "py_modules/_vendor/requests", "py_modules/data", "dist", "db", "gcm", "bin"):
                 (root / name).mkdir(parents=True)
             (root / "py_modules/_vendor/requests/__init__.py").write_text("pass\n")
             (root / "py_modules/_gcm_core/auth.py").write_text("KEY = 'fixture-only'\n")
             (root / "py_modules/secret_config.py").write_text("DO_NOT_SHIP = True\n")
+            (root / "py_modules/data/library.json").write_text("{}")
             (root / "dist/index.js").write_text("export default {};\n")
             (root / "dist/index.js.map").write_text("DO_NOT_SHIP")
             (root / "gcm/LICENSE.txt").write_text("license")
             (root / "db/catalog.json").write_text("{}")
             (root / "bin/gcm-start.exe").write_bytes(b"MZ")
             (root / "bin/gcm-pipewait.dll").write_bytes(b"MZ")
+            (root / "bin/gcm-ce-context.dll").write_bytes(b"MZ")
             output = Path(temporary) / "release.zip"
             def javascript(args, **kwargs):
                 Path(args[-1]).write_text("export default {};\n")
-            with patch.object(package_release, "ROOT", root), patch.object(package_release.subprocess, "run", side_effect=javascript):
+            # What goes into the ZIP does not depend on the interpreter; only a real release needs Decky's.
+            with patch.object(package_release, "ROOT", root), patch.object(package_release, "release_python", return_value=True), \
+                    patch.object(package_release.subprocess, "run", side_effect=javascript):
                 package_release.package(output)
             with zipfile.ZipFile(output) as archive:
                 names = archive.namelist()
                 self.assertTrue(all(name.startswith("DeckyGCM/") for name in names))
                 self.assertIn("DeckyGCM/py_modules/_gcm_core/auth.pyc", names)
                 self.assertIn("DeckyGCM/package.json", names)
+                # Only the English README ships; the About page opens the translations on GitLab.
+                self.assertEqual([name for name in names if "README" in name], ["DeckyGCM/README.md"])
+                # The backend reads its values from these at runtime.
+                self.assertIn("DeckyGCM/py_modules/data/library.json", names)
                 self.assertIn("DeckyGCM/bin/gcm-start.exe", names)
                 self.assertIn("DeckyGCM/bin/gcm-pipewait.dll", names)
+                self.assertIn("DeckyGCM/bin/gcm-ce-context.dll", names)
                 self.assertEqual([name for name in names if name.endswith(".py")], ["DeckyGCM/main.py"])
                 self.assertFalse(any("secret_config" in name or name.endswith(".map") for name in names))
                 metadata = json.loads(archive.read("DeckyGCM/plugin.json"))

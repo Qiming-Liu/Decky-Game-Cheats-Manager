@@ -31,23 +31,28 @@ import os
 import threading
 from pathlib import Path
 
+import cheat_engine
 import decky
+import library_settings
 import plugin_settings
 import steam_library
-import trainer_library
 
 NAME = ".gcm.bat"
 STARTER_NAME = ".gcm-start.exe"
 # Loaded by the starter into FLiNG trainers so they wait longer for their own window.
 PIPE_WAIT_NAME = ".gcm-pipewait.dll"
+CE_CONTEXT_NAME = ".gcm-ce-context.dll"
 # What the script and the starter did, read and emptied by launch_check.
 LOG_NAME = ".gcm-launch.log"
+# What the started programs did (window, message boxes, exit), read by trainer_events.
+EVENTS_NAME = ".gcm-events.log"
 # Files the launcher owns in a folder; library migration leaves them behind.
-FILES = (NAME, STARTER_NAME, PIPE_WAIT_NAME, LOG_NAME)
+FILES = (NAME, STARTER_NAME, PIPE_WAIT_NAME, CE_CONTEXT_NAME, LOG_NAME, EVENTS_NAME)
 LEGACY_PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "launch.bat")
 LEGACY_STARTER_NAME = "gcm-start.exe"
 STARTER = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "gcm-start.exe")
 PIPE_WAIT = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "gcm-pipewait.dll")
+CE_CONTEXT = os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "gcm-ce-context.dll")
 _lock = threading.Lock()
 
 
@@ -91,13 +96,22 @@ def _render(settings: dict, language: str = "") -> str:
               ":table", 'if not defined GCM_CE ' + log('no Cheat Engine for "%GCM_PROGRAM%"'),
               'if not defined GCM_CE goto started',
               # Existing launch options can still contain a previously linked path.
-              f'if not exist "%GCM_CE_DIR%{trainer_library.MANAGED_CE_MARKER}" ' + log('Cheat Engine download required'),
-              f'if not exist "%GCM_CE_DIR%{trainer_library.MANAGED_CE_MARKER}" goto started',
+              f'if not exist "%GCM_CE_DIR%{cheat_engine.MANAGED_MARKER}" ' + log('Cheat Engine download required'),
+              f'if not exist "%GCM_CE_DIR%{cheat_engine.MANAGED_MARKER}" goto started',
               log('table "%GCM_PROGRAM%"'),
               # Cheat Engine's Lua reads the environment and opens files in the
               # ANSI code page, where a Chinese folder name turns into "?". The
               # 8.3 short paths name the same places in plain ASCII.
               'for %%i in ("%GCM_PROGRAM%") do set "GCM_TABLE=%%~si"',
+              # Cheat Engine refuses a signed table (a <Signature> element) under
+              # Wine. Such a table is not given to it: the bridge opens it from
+              # GCM_TABLE with the signature removed in memory (GCM_UNSIGN).
+              'set "GCM_UNSIGN="',
+              'if /i "%GCM_TYPE%"==".ct" findstr /m /c:"<Signature" "%GCM_PROGRAM%" >nul 2>&1 && set "GCM_UNSIGN=1"',
+              'if defined GCM_UNSIGN ' + log("signed table, opened by the bridge without its signature"),
+              # The bridge starts the 32-bit Cheat Engine through the starter
+              # when the game is 32-bit (see decky_gcm.lua); same ANSI reason.
+              'for %%i in ("%GCM_START%") do set "GCM_STARTER=%%~si"',
               'for %%i in ("%GCM_CE%") do set "GCM_LOG=%%~dpsiautorun\\decky_gcm.log"',
               # Cheat Engine takes its language from LANG, before its own settings.
               f'set "LANG={"zh_CN" if language in CHINESE else "en_US"}"',
@@ -110,8 +124,10 @@ def _render(settings: dict, language: str = "") -> str:
                 for name in ("First Time User", "LuaScriptAction")),
               # An older starter takes one program only and fails here.
               'if not exist "%GCM_START%" goto direct',
-              '"%GCM_START%" "%GCM_CE%" "%GCM_PROGRAM%" && goto started',
-              ":direct", 'start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%GCM_PROGRAM%"',
+              'if defined GCM_UNSIGN "%GCM_START%" --ce "%GCM_CE%" && goto started',
+              'if not defined GCM_UNSIGN "%GCM_START%" --ce "%GCM_CE%" "%GCM_PROGRAM%" && goto started',
+              ":direct", 'if defined GCM_UNSIGN start "" /d "%GCM_CE_DIR%" "%GCM_CE%"',
+              'if not defined GCM_UNSIGN start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%GCM_PROGRAM%"',
               ":started"]
     if not settings["allow_multiple"]:
         lines.append("goto :eof")
@@ -146,6 +162,7 @@ def _sync_starter(directory: Path):
     """Keeps copies of the plugin's starter and its pipe-wait library beside the script."""
     _sync_copy(STARTER, directory / STARTER_NAME)
     _sync_copy(PIPE_WAIT, directory / PIPE_WAIT_NAME)
+    _sync_copy(CE_CONTEXT, directory / CE_CONTEXT_NAME)
 
 
 def _write(file: Path, text: str):
@@ -170,7 +187,7 @@ def script() -> dict:
         _write(legacy, text)
         (legacy.parent / LEGACY_STARTER_NAME).unlink(missing_ok=True)
         try:
-            library = Path(trainer_library.directory()).resolve()
+            library = Path(library_settings.directory()).resolve()
             library.mkdir(parents=True, exist_ok=True)
             current = library / NAME
             _write(current, text)

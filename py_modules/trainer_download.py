@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import shutil
 import tempfile
 import threading
@@ -11,25 +10,27 @@ import time
 import uuid
 from pathlib import Path
 
+import cheat_engine
 import data_source
 import decky
+import download_jobs
 import http_download
+import library_layout
 import library_storage
+import plugin_data
 import trainer_archive
+import trainer_cache
 import trainer_library
+from download_jobs import ACTIVE_STATES
+from library_scan import CHEAT_ENGINE
+from library_settings import TRAINER_EXTENSIONS
 
-ACTIVE_STATES = {"queued", "downloading", "extracting"}
 STAGING_PREFIX = ".gcm-download-"
+_DATA = plugin_data.load("downloads")
 
 
 class DownloadCancelled(Exception):
     pass
-
-
-def _safe_folder_name(name):
-    name = name.replace(": ", " - ").replace(":", "-").replace("/", "_").replace("?", "")
-    name = re.sub(r'[<>"\\|*\x00-\x1f]', "", name).strip(" .")
-    return name.encode("utf-8")[:150].decode("utf-8", errors="ignore") or "trainer"
 
 
 class DownloadManager:
@@ -46,9 +47,7 @@ class DownloadManager:
         self._closing = False
         self._slots = None
 
-    @staticmethod
-    def _snapshot(job):
-        return {**job, "app_ids": list(job["app_ids"])}
+    _snapshot = staticmethod(download_jobs.snapshot)
 
     async def wait_idle(self):
         if self._tasks:
@@ -89,53 +88,49 @@ class DownloadManager:
     def cancel(self, job_id: str, app_id: str):
         with self._lock:
             job = self._jobs.get(job_id)
-            if not job or app_id not in job["app_ids"]:
+            if not job or not download_jobs.may_cancel(job, app_id):
                 raise ValueError("Unknown download for this game.")
             if job["state"] in ACTIVE_STATES:
                 self._cancel[job_id].set()
             return self._snapshot(job)
 
-    async def start(self, trainer, download_dir=None, app_id="", expected_directory=""):
+    async def start(self, trainer, download_dir=None, app_id="", expected_directory="", game_name=""):
         # A cancelled RPC must not leave a registered job without a worker.
-        starting = asyncio.create_task(self._start(trainer, download_dir, app_id, expected_directory))
+        starting = asyncio.create_task(self._start(trainer, download_dir, app_id, expected_directory, game_name))
         try:
             return await asyncio.shield(starting)
         except asyncio.CancelledError:
             await asyncio.gather(starting, return_exceptions=True)
             raise
 
-    async def _start(self, trainer, download_dir, app_id, expected_directory):
+    async def _start(self, trainer, download_dir, app_id, expected_directory, game_name):
         root = os.path.realpath(download_dir or await asyncio.to_thread(trainer_library.directory))
         if expected_directory and root != os.path.realpath(expected_directory):
             raise ValueError("library_changed")
         async with self._lifecycle:
-            job, token, created, snapshot = await asyncio.to_thread(self._register, trainer, root, app_id)
+            job, token, created, snapshot = await asyncio.to_thread(self._register, trainer, root, app_id, game_name)
             if created:
                 if not self._tasks:
-                    self._slots = asyncio.Semaphore(2)
+                    self._slots = asyncio.Semaphore(_DATA["max_concurrent"])
                 task = asyncio.create_task(self._run(job, dict(trainer), token))
                 self._tasks.add(task)
                 task.add_done_callback(self._tasks.discard)
             return snapshot
 
-    def _register(self, trainer, root, app_id):
+    def _register(self, trainer, root, app_id, game_name):
         with self._lock:
             if self._closing:
                 raise ValueError("plugin_stopping")
             for job in self._jobs.values():
-                if (job["trainer_id"] == trainer["id"] and job.get("version", "") == trainer.get("version", "")
-                        and job["state"] in ACTIVE_STATES):
+                if download_jobs.same_download(job, trainer, app_id, root):
                     if app_id and app_id not in job["app_ids"]:
                         job["app_ids"].append(app_id)
-                    return job, self._cancel[job["id"]], False, self._snapshot(job)
-            for key in [key for key, job in self._jobs.items() if job["state"] not in ACTIVE_STATES][:-49]:
+                    return job, self._cancel.get(job["id"]), False, self._snapshot(job)
+            for key in download_jobs.expired(self._jobs, _DATA["finished_jobs_kept"]):
                 del self._jobs[key]
-            job = {
-                "id": uuid.uuid4().hex, "trainer_id": trainer["id"], "trainer_name": trainer["trainer_name"],
-                "version": trainer.get("version", ""),
-                "state": "queued", "downloaded": 0, "total": 0, "path": None, "error": None,
-                "directory": root, "app_ids": [app_id] if app_id else [], "started_at": time.time(),
-            }
+            # Without a name from Steam, the game folder is named after the game the trainer is for.
+            job = download_jobs.new_job(uuid.uuid4().hex, trainer, root, app_id,
+                                        game_name or trainer.get("game_name", ""), time.time())
             self._jobs[job["id"]] = job
             token = self._cancel[job["id"]] = threading.Event()
             return job, token, True, self._snapshot(job)
@@ -150,18 +145,19 @@ class DownloadManager:
             with self._lock:
                 job.update(downloaded=done, total=total)
 
-        def commit(content, target, metadata):
+        def commit(content, target, metadata, library):
             # The library lock is already held. Only final metadata and rename need
             # the job lock, so cancellation and polling stay available during hashing/copying.
             with self._lock:
                 check()
                 metadata["app_ids"] = list(job["app_ids"])
-                trainer_library.write_json(content / trainer_library.METADATA, metadata)
+                library_storage.write_json(content / library_storage.METADATA, metadata)
                 content.rename(target)
-                job.update(path=str(target), directory=str(target.parent), state="done")
+                job.update(path=str(target), directory=str(library), state="done")
 
         check()
-        restored = trainer_library.restore_trainer(trainer, [], commit=commit, check=check)
+        game = {"app_id": job["app_id"], "game_name": job["game_name"]}
+        restored = trainer_library.restore_trainer(trainer, [], commit=commit, check=check, **game)
         if restored is not None:
             return
         root = Path(job["directory"])
@@ -182,15 +178,13 @@ class DownloadManager:
                 trainer_archive.extract(str(downloaded), str(content))
             else:
                 shutil.move(str(downloaded), content / downloaded.name)
-            if not any(p.is_file() and p.suffix.lower() in trainer_library.TRAINER_EXTENSIONS for p in content.rglob("*")):
+            if not any(p.is_file() and p.suffix.lower() in TRAINER_EXTENSIONS for p in content.rglob("*")):
                 raise ValueError("No .exe or .CT trainer files found in the download.")
-            metadata = {k: trainer.get(k, "") for k in ("trainer_name", "game_name", "version", "origin", "author")}
-            metadata.update(schema_version=1, trainer_id=trainer["id"], source_path=trainer["url"],
-                            content_hashes=trainer_library.content_hashes(content, check))
+            metadata = download_jobs.metadata(trainer, trainer_cache.content_hashes(content, check))
             check()
             trainer_library.publish_download(
-                content, f"{_safe_folder_name(trainer['trainer_name'])} [{job['id'][:8]}]", root,
-                commit=lambda prepared, target: commit(prepared, target, metadata))
+                content, library_layout.trainer_folder_name(trainer["trainer_name"], job["id"]), root,
+                commit=lambda prepared, target, library: commit(prepared, target, metadata, library), **game)
 
     async def _run(self, job, trainer, token):
         try:
@@ -218,12 +212,12 @@ class DownloadManager:
                 decky.logger.info('Download of trainer "%s" finished: %s', job["trainer_name"], job["path"])
                 # A fresh Cheat Engine replaces any earlier copy and gets the
                 # plugin's autorun script right away.
-                if (Path(job["path"]) / trainer_library.CHEAT_ENGINE).is_file():
+                if (Path(job["path"]) / CHEAT_ENGINE).is_file():
                     try:
-                        final = str(trainer_library.replace_cheat_engine(job["path"]))
+                        final = str(cheat_engine.replace(job["path"]))
                         with self._lock:
                             job["path"] = final
-                        trainer_library.install_bridge(final)
+                        cheat_engine.install_bridge(final)
                     except (OSError, ValueError) as error:
                         decky.logger.warning("Could not finish installing Cheat Engine: %s", error)
             elif job["state"] == "error":
@@ -250,8 +244,8 @@ def cleanup_staging(before: float):
     library_storage.remove_stale_directories(trainer_library.directory(), STAGING_PREFIX, before)
 
 
-async def start(trainer, download_dir=None, app_id="", expected_directory=""):
-    return await manager.start(trainer, download_dir, app_id, expected_directory)
+async def start(trainer, download_dir=None, app_id="", expected_directory="", game_name=""):
+    return await manager.start(trainer, download_dir, app_id, expected_directory, game_name)
 
 
 def jobs():

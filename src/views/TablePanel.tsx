@@ -1,54 +1,28 @@
-import { Dropdown, Focusable, PanelSectionRow, TextField, Toggle } from "@decky/ui";
+import { Dropdown, Focusable, ModalRoot, PanelSectionRow, showModal, TextField, Toggle } from "@decky/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
+import timing from "../data/timing.json";
+import { fileName } from "../domain/paths";
+import {
+  bridgeStatus, countEntries, countOn, displayOnlyLabels as labelsOf, DropdownCache, dropdownOptions, EntryFailure, entryFailure, flatten, isGroup, isScriptEntry,
+  withDisplayOnlyEntries,
+} from "../domain/table";
 import { changeCheatEngine } from "../hooks/useCheatEngine";
 import type { RunningTable } from "../hooks/useRunningTable";
 import {
-  attachTable, GameProcess, getGameProcesses, getTable, getTableState, sendTableCommand, TableEntry, TableState, tableSession,
+  attachTable, EntryScan, GameProcess, scanTable, getGameProcesses, getTable, getTableState, sendTableCommand, TableEntry, TableState, tableSession,
 } from "../utils/backend";
 import { errorMessage, useTranslations } from "../utils/i18n";
+import type { Translations } from "../utils/locales";
+import { askTable, tableTrust } from "./confirmTable";
 import { Badge, Button, colors, mono } from "./shell";
 import { ChevronDownIcon, ChevronRightIcon, LinkIcon } from "./icons";
 
-const NO_REPLY_AFTER = 20;
-const POLL = 1000;
-
-const isGroup = (entry: TableEntry) => entry.displayOnly ? entry.children.length > 0 : entry.group;
-
-/** The entries of a table with their groups, as rows: nested groups are flattened under their parents. */
-function flatten(entries: TableEntry[], filter: string, collapsed: Set<number>, depth = 0): { entry: TableEntry; depth: number }[] {
-  const rows: { entry: TableEntry; depth: number }[] = [];
-  const query = filter.trim().toLowerCase();
-  for (const entry of entries) {
-    const children = flatten(entry.children, filter, collapsed, depth + 1);
-    const matches = !query || entry.desc.toLowerCase().includes(query);
-    if (isGroup(entry)) {
-      // A filter shows every matching entry, with its group kept as a heading.
-      if (query ? children.length : true) {
-        rows.push({ entry, depth });
-        if (query || !collapsed.has(entry.id)) rows.push(...children);
-      }
-    } else if (matches || children.length) {
-      rows.push({ entry, depth }, ...children);
-    }
-  }
-  return rows;
-}
-
-const countOn = (entries: TableEntry[]): number => entries.reduce((sum, entry) =>
-  sum + (!entry.group && !entry.displayOnly && entry.active ? 1 : 0) + countOn(entry.children), 0);
-const countEntries = (entries: TableEntry[]): number => entries.reduce((sum, entry) =>
-  sum + (entry.group || entry.displayOnly ? 0 : 1) + countEntries(entry.children), 0);
-
-function withDisplayOnlyEntries(entries: TableEntry[], labels: ReadonlyMap<number, string>): TableEntry[] {
-  return entries.map(entry => ({
-    ...entry,
-    displayOnly: labels.get(entry.id) === entry.desc,
-    children: withDisplayOnlyEntries(entry.children, labels),
-  }));
-}
+const NO_REPLY_AFTER = timing.table_no_reply_after_seconds;
+const POLL = timing.table_state_poll_ms;
 
 /** The Quick Access panel while a game runs with a table. */
-export default function TablePanel({ running }: { running: RunningTable }) {
+/** `collectorAtRisk`: the game runs on Wine Mono, so entries that use Cheat Engine's .NET data collector may fail. */
+export default function TablePanel({ running, collectorAtRisk = false }: { running: RunningTable; collectorAtRisk?: boolean }) {
   const t = useTranslations();
   const { appId, table, programs } = running;
   const [state, setState] = useState<TableState | null>(null);
@@ -63,6 +37,36 @@ export default function TablePanel({ running }: { running: RunningTable }) {
   // Commands sent but not yet reported back, by entry.
   const [pending, setPending] = useState(new Map<number, number>());
   const sessionTable = useRef("");
+  const dropdowns = useRef<DropdownCache>(new Map());
+
+  // A table never confirmed is pointed out: Cheat Engine has opened it
+  // already, so the warning is all that can be done.
+  const [trust, setTrust] = useState<Awaited<ReturnType<typeof tableTrust>>>();
+  const [trustChecked, setTrustChecked] = useState(0);
+  useEffect(() => {
+    let disposed = false;
+    void tableTrust(table).then(result => { if (!disposed) setTrust(result); });
+    return () => { disposed = true; };
+  }, [table, trustChecked]);
+
+  // The table's byte patterns are looked for in the game's files once, in the background.
+  const [scan, setScan] = useState<Record<string, EntryScan>>({});
+  // On ARM, entries of an IL2CPP game that need Cheat Engine's injected data collector are pointed out:
+  // that injection failed under FEX (py_modules/table_scan.py).
+  const [armRisk, setArmRisk] = useState(new Set<string>());
+  const [collector, setCollector] = useState(new Set<string>());
+  const [arm, setArm] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    void scanTable(table, appId).then(result => {
+      if (disposed || !result.success) return;
+      setScan(result.entries || {});
+      setArm(Boolean(result.arm));
+      setArmRisk(new Set(result.arm ? result.injection || [] : []));
+      setCollector(new Set(result.collector || []));
+    }).catch(() => {});
+    return () => { disposed = true; };
+  }, [table, appId]);
 
   // One session per table: old commands are dropped at the start, the files at the end.
   useEffect(() => {
@@ -115,7 +119,7 @@ export default function TablePanel({ running }: { running: RunningTable }) {
     setMessage("");
     try {
       const name = processes.find(item => item.pid === pid)?.name || "";
-      const result = await attachTable(table, pid, name);
+      const result = await attachTable(table, pid, name, appId);
       if (!result.success) throw new Error(result.error);
     } catch (error) { setMessage(error instanceof Error ? error.message : "unknownError"); }
   }
@@ -126,10 +130,7 @@ export default function TablePanel({ running }: { running: RunningTable }) {
 
   const attached = Boolean(state && state.pid);
   const waited = Math.floor((now - startedAt) / 1000);
-  const displayOnlyLabels = useMemo(() => {
-    const rows = flatten(preview ?? [], "", new Set());
-    return new Map(rows.filter(({ entry }) => entry.displayOnly).map(({ entry }) => [entry.id, entry.desc]));
-  }, [preview]);
+  const displayOnlyLabels = useMemo(() => labelsOf(preview ?? []), [preview]);
   const entries = state?.entries ? withDisplayOnlyEntries(state.entries, displayOnlyLabels) : preview ?? [];
   const rows = flatten(entries, filter, collapsed);
   const live = attached;
@@ -144,38 +145,82 @@ export default function TablePanel({ running }: { running: RunningTable }) {
       <span aria-hidden style={{ display: "inline-flex", width: 32, height: 32, flex: "0 0 32px", borderRadius: 8, background: `${color}29`, color, alignItems: "center", justifyContent: "center" }}>
         <LinkIcon size={16} /></span>
       <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{table.slice(table.lastIndexOf("/") + 1)}</div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName(table)}</div>
         <div style={{ fontSize: 11, color: tone === "ok" ? colors.muted : color }}>{line}</div>
       </div>
       {action}
     </Focusable>;
   };
 
+  const bridge = bridgeStatus(state, waited, NO_REPLY_AFTER);
   let header: React.ReactNode;
-  if (attached) {
+  if (bridge === "attached") {
     header = card("ok", <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <span aria-hidden style={{ display: "inline-block", width: 7, height: 7, borderRadius: 4, background: "#59bf40" }} />
       {t.panelAttached(state!.attached)} · {t.panelEntries(countEntries(entries), countOn(entries))}</span>);
-  } else if (state) {
+  } else if (bridge === "notAttached") {
     header = card("warn", t.panelNotAttached);
-  } else if (waited >= NO_REPLY_AFTER) {
+  } else if (bridge === "noReply") {
     header = card("bad", t.panelNoReply(waited));
   } else {
     header = card("ok", t.panelStarting);
   }
 
+  const failureText: Record<EntryFailure, string> = {
+    detached: t.panelFailedDetached, exited: t.panelFailedExited, rejected: t.panelFailed,
+    error: t.panelFailedError, value: t.panelFailedValue,
+  };
+  // Cheat Engine's own reason, when it gave one; a gone process still says so first.
+  const reasonText: Record<string, string> = {
+    afAOBNotFound: t.reasonAobNotFound, afAOBModuleNotFound: t.reasonModuleNotFound, afAssertFailure: t.reasonAssert,
+    afSyntaxError: t.reasonSyntax, afSyntaxErrorInLua: t.reasonSyntax, afStructureDefinitionError: t.reasonSyntax,
+    afAllocateFailure: t.reasonAllocate, afInaccessible: t.reasonInaccessible, afDLLInjectionFailure: t.reasonInjection,
+    afIncludeNotFound: t.reasonInclude,
+  };
+  const failureLabel = (entry: TableEntry, failure: EntryFailure) =>
+    failure === "detached" || failure === "exited" ? failureText[failure]
+      : (entry.reason && reasonText[entry.reason]) || failureText[failure];
   const toggle = (entry: TableEntry, value: boolean) => { void send({ id: entry.id, active: value }, entry.id); };
   const write = (entry: TableEntry, value: string) => { setEditing(undefined); void send({ id: entry.id, value }, entry.id); };
 
   return <div style={{ display: "flex", flexDirection: "column" }}>
     <PanelSectionRow>{header}</PanelSectionRow>
+    {trust && trust.state !== "ok" && <PanelSectionRow>
+      <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 12, color: colors.warning }}>
+        <span style={{ flex: "1 1 auto", minWidth: 0 }}>{t.tableUnconfirmed(fileName(table))}</span>
+        {/* The dialog opens in the menu's own window, in front of the running game. */}
+        <Button style={{ height: 30, padding: "0 12px", fontSize: 12 }} onClick={event => {
+          void askTable(t, table, trust.code, event.currentTarget ?? window)
+            .then(agreed => { if (agreed) setTrustChecked(value => value + 1); });
+        }}>{t.tableConfirm}</Button>
+      </Focusable></PanelSectionRow>}
+    {state?.script_error && <PanelSectionRow>
+      {/* Cheat Engine shows the error in its Lua window, which the game hides. */}
+      <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 12 }}>
+        <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ color: colors.danger }}>{t.panelScriptError}</div>
+          <div style={{ color: colors.muted, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {state.script_error.text.split("\n")[0]}</div>
+        </div>
+        <Button style={{ height: 30, padding: "0 12px", fontSize: 12 }} onClick={event => {
+          const error = state.script_error!;
+          showScriptError(t, error.full || error.text, event.currentTarget ?? window);
+        }}>{t.panelScriptErrorShow}</Button>
+      </Focusable></PanelSectionRow>}
+    {state?.injection_error && <PanelSectionRow>
+      {/* Printed in Cheat Engine's hidden Lua window without a traceback. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 10, fontSize: 12 }}>
+        <div style={{ color: colors.danger }}>{arm ? `${t.panelInjectionFailed} · ${t.panelArmMaybe}` : t.panelInjectionFailed}</div>
+        <div style={{ color: colors.muted, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {state.injection_error.text}</div>
+      </div></PanelSectionRow>}
     {state && <PanelSectionRow><div style={{ marginBottom: 10 }}>
       <Dropdown menuLabel={t.panelProcess} strDefaultLabel={t.panelProcess}
         selectedOption={processes.some(item => item.pid === state.pid) ? state.pid : undefined}
         rgOptions={processes.map(item => ({ data: item.pid, label: processLabel(item) }))}
         onMenuWillOpen={showMenu => { void loadProcesses().then(showMenu); }}
         onChange={option => { void attach(Number(option.data)); }} /></div></PanelSectionRow>}
-    {!state && waited >= NO_REPLY_AFTER && <PanelSectionRow>
+    {bridge === "noReply" && <PanelSectionRow>
       <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: 12, color: "#a9b1b8", lineHeight: 1.6 }}>{t.panelNoReplyHint}</div>
         <Button style={{ height: 36, fontSize: 13 }} onClick={() => { void changeCheatEngine("bridge").catch(() => {}); }}>{t.panelReinstallBridge}</Button>
@@ -219,28 +264,39 @@ export default function TablePanel({ running }: { running: RunningTable }) {
               fontSize: 14, color: colors.muted, overflowWrap: "anywhere",
             }}>{entry.desc}</div>;
           }
-          const failed = Boolean(entry.error);
+          // A failed entry can be tried again: the reason goes once it works.
+          const failure = entryFailure(entry.error);
+          const failed = Boolean(failure);
           const busy = pending.has(entry.id);
-          const script = entry.type === "script" || entry.value === undefined || entry.value === "" || entry.value === "??";
+          const script = isScriptEntry(entry);
           const edit = editing?.id === entry.id;
           return <div key={entry.id} style={{ borderTop: `1px solid ${colors.line}`, background: edit ? colors.surface : undefined, borderRadius: 3 }}>
             <Focusable flow-children="row" style={{ display: "flex", alignItems: "center", gap: 10, padding: `9px 4px 9px ${4 + indent}px` }}
-              onSecondaryButton={!script && live && !failed ? () => setEditing({ id: entry.id, value: entry.value || "" }) : undefined}
-              onSecondaryActionDescription={!script && live && !failed ? t.edit : undefined}>
+              onSecondaryButton={!script && live ? () => setEditing({ id: entry.id, value: entry.value || "" }) : undefined}
+              onSecondaryActionDescription={!script && live ? t.edit : undefined}>
               <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
                 <div style={{ fontSize: 14, color: failed ? "#a9b1b8" : entry.active ? colors.text : "#dcdedf", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{entry.desc}</div>
-                {failed ? <div style={{ fontSize: 11, color: colors.warning }}>{t.panelFailed}</div>
+                {failure ? <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <div style={{ fontSize: 11, color: colors.warning }}>
+                    {failureLabel(entry, failure)}{armRisk.has(String(entry.id)) ? ` · ${t.panelArmMaybe}`
+                      : collectorAtRisk && collector.has(String(entry.id)) ? ` · ${t.panelNeedsDotnet}` : ""}</div>
+                  {entry.reason_text && <div style={{ fontSize: 10, color: colors.muted, overflowWrap: "anywhere",
+                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                    {entry.reason_text}</div>}</div>
                   : busy ? <div style={{ fontSize: 11, color: colors.accentText }}>{t.panelSwitching}</div>
+                  : scan[String(entry.id)] === "missing" ? <div style={{ fontSize: 11, color: colors.warning }}>{t.panelScanMissing}</div>
+                  : armRisk.has(String(entry.id)) ? <div style={{ fontSize: 11, color: colors.warning }}>{t.panelArmMaybe}</div>
+                  : collectorAtRisk && collector.has(String(entry.id)) ? <div style={{ fontSize: 11, color: colors.warning }}>{t.panelNeedsDotnet}</div>
                   : !script ? <div style={{ fontSize: 11, color: colors.muted }}>{t.panelLockHint}</div> : null}
               </div>
               {!script && entry.options?.length ? <div style={{ minWidth: 96 }}>
-                <Dropdown disabled={!live || failed} selectedOption={entry.value} rgOptions={entry.options.map(option => ({ data: option.value, label: option.label }))}
+                <Dropdown disabled={!live} selectedOption={entry.value} rgOptions={dropdownOptions(dropdowns.current, entry)}
                   onChange={option => write(entry, String(option.data))} /></div>
-                : !script ? <Button style={{ height: 30, padding: "0 10px", fontSize: 12, ...mono }} disabled={!live || failed}
+                : !script ? <Button style={{ height: 30, padding: "0 10px", fontSize: 12, ...mono }} disabled={!live}
                   onClick={() => setEditing(edit ? undefined : { id: entry.id, value: entry.value || "" })}>{entry.value}</Button>
                 : null}
               <div style={{ opacity: busy ? .5 : 1 }}>
-                <Toggle value={entry.active} disabled={!live || failed || busy} onChange={value => toggle(entry, value)} /></div>
+                <Toggle value={entry.active} disabled={!live || busy} onChange={value => toggle(entry, value)} /></div>
             </Focusable>
             {edit && <Focusable flow-children="row" style={{ display: "flex", gap: 6, alignItems: "center", padding: "0 4px 9px 4px" }}
               onCancelButton={() => setEditing(undefined)} onCancelActionDescription={t.cancel}
@@ -258,4 +314,23 @@ export default function TablePanel({ running }: { running: RunningTable }) {
     </PanelSectionRow>
     {!live && entries.length > 0 && <PanelSectionRow><div style={{ fontSize: 11, color: colors.dim, lineHeight: 1.5, marginTop: 8 }}>{t.panelWaitHint}</div></PanelSectionRow>}
   </div>;
+}
+
+/**
+ * The whole error, in a dialog opened in the window of the element that asked
+ * for it: from the Quick Access menu that is the menu's own window, in front
+ * of the running game.
+ */
+function showScriptError(t: Translations, text: string, opener: EventTarget) {
+  showModal(<ScriptErrorModal t={t} text={text} />, opener, { strTitle: t.panelScriptError });
+}
+
+function ScriptErrorModal({ t, text, closeModal }: { t: Translations; text: string; closeModal?: () => void }) {
+  return <ModalRoot closeModal={closeModal}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: colors.danger }}>{t.panelScriptError}</div>
+      <div style={{ ...mono, fontSize: 12, lineHeight: 1.5, color: "#dcdedf", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{text}</div>
+      <Button primary style={{ alignSelf: "flex-end", padding: "0 22px" }} onClick={closeModal}>{t.close}</Button>
+    </div>
+  </ModalRoot>;
 }

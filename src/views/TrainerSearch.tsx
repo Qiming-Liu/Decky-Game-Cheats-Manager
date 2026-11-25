@@ -7,41 +7,23 @@ import {
 import { useLibrary, invalidateLibrary } from "../hooks/useLibrary";
 import { trackDownload, useDownloads } from "../hooks/useDownloads";
 import { downloadCheatEngine, useCheatEngine } from "../hooks/useCheatEngine";
-import { activeVersion, installedVersion, originLabel } from "../domain/trainer";
+import { databaseDate, rankResults } from "../domain/search";
+import { activeVersion, downloadedVersion, originLabel, unreadDownloads } from "../domain/trainer";
+import { isActiveJob, jobPercent } from "../domain/trainerList";
 import { Button, colors, jobStateLabel, Progress, Row, Status } from "./shell";
 import { CheckIcon, InfoIcon } from "./icons";
 
-/** The newest database file's date as MM-DD, or "" when nothing was downloaded. */
-function databaseDate(status?: DatabaseStatus) {
-  const newest = Math.max(0, ...Object.values(status?.files || {}).filter((value): value is number => typeof value === "number" && Number.isFinite(value)));
-  if (!newest) return "";
-  const date = new Date(newest * 1000);
-  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-const normalize = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-
-/**
- * Results whose game name matches the searched or Steam name exactly come
- * first, then by prefix, then by substring. Ties keep the database's order.
- */
-export function rankResults(results: readonly TrainerResult[], names: readonly (string | undefined)[]): TrainerResult[] {
-  const targets = names.map(name => normalize(name || "")).filter(Boolean);
-  const closeness = (name: string) => !name ? 3 : Math.min(3, ...targets.map(target => name === target ? 0
-    : name.startsWith(target) || target.startsWith(name) ? 1 : name.includes(target) || target.includes(name) ? 2 : 3));
-  // The database names games in English; the trainer name holds the
-  // localized title in 《》, which is what a localized search matches.
-  const match = (result: TrainerResult) => Math.min(
-    closeness(normalize(result.game_name)), closeness(normalize(/《(.+?)》/.exec(result.trainer_name)?.[1] || "")));
-  return results.map((result, index) => ({ result, index, score: match(result) }))
-    .sort((a, b) => a.score - b.score || a.index - b.index).map(item => item.result);
-}
-
 export default function TrainerSearch({ appId, initialKeyword }: { appId: string; initialKeyword: string }) {
   const t = useTranslations();
-  const { library, error } = useLibrary(appId, initialKeyword);
+  const { library, loading: libraryLoading, error } = useLibrary(appId, initialKeyword);
   const jobs = useDownloads();
   const engine = useCheatEngine();
+  // The finished downloads a completed read of the library has covered: the ones
+  // from before this page opened, then those finished each time a read completes.
+  const done = () => jobs.filter(job => job.state === "done").map(job => job.id);
+  const [read] = useState(() => new Set(done()));
+  useEffect(() => { if (!libraryLoading) done().forEach(id => read.add(id)); }, [libraryLoading]);
+  const unread = libraryLoading ? unreadDownloads(jobs, appId, read) : [];
   const [keyword, setKeyword] = useState(initialKeyword);
   const [results, setResults] = useState<TrainerResult[]>([]);
   const [message, setMessage] = useState("");
@@ -91,7 +73,7 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
   async function cancel(job: DownloadJob) {
     const jobId = job.id;
     setCancelling(previous => new Set(previous).add(jobId));
-    try { trackDownload(await cancelDownload({ appId: job.app_ids.includes(appId) ? appId : job.app_ids[0] || appId, jobId })); }
+    try { trackDownload(await cancelDownload({ appId: job.app_ids.includes(appId) ? appId : job.app_ids[0] || "", jobId })); }
     catch (error) {
       setMessage(error instanceof Error ? error.message : "unknownError");
       setCancelling(previous => { const next = new Set(previous); next.delete(jobId); return next; });
@@ -105,7 +87,8 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
         const job = await downloadCheatEngine();
         if (job) trackDownload(job);
       }
-      const response = await downloadTrainer(trainer.id, appId, library?.directory || "", trainer.version);
+      // The name the game folder is made with when Steam has no manifest for the game.
+      const response = await downloadTrainer(trainer.id, appId, library?.directory || "", trainer.version, library?.game_name || initialKeyword || "");
       if (!response.success || !response.job) {
         if (response.error === "library_changed") invalidateLibrary();
         throw new Error(response.error || "Could not start download.");
@@ -128,12 +111,10 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
     {searched && results.length > 0 && <div style={{ fontSize: 12, color: colors.muted, padding: "0 4px 16px" }}>
       {t.foundCount(results.length)}{databaseDate(database) && ` · ${t.databaseDate(databaseDate(database))}`}</div>}
     <div ref={list}>{results.map(trainer => {
-      const installed = installedVersion(trainer, library?.trainers || []);
+      const installed = downloadedVersion(trainer, library?.trainers || [], unread);
       const otherVersion = library?.trainers?.some(item => item.trainer_id === trainer.id);
       const job = activeVersion(trainer, jobs);
-      const fraction = job && job.total > 0 ? job.downloaded / job.total : 0;
-      const percent = job?.state === "extracting" ? 100
-        : Number.isFinite(fraction) ? Math.max(0, Math.min(100, Math.floor(fraction * 100))) : 0;
+      const percent = jobPercent(job);
       const details = [trainer.version, trainer.table ? t.tableLabel : originLabel(trainer.origin), trainer.author, otherVersion && !installed ? t.otherVersionInstalled : ""]
         .filter(Boolean).join(" · ");
       const description = job ? <span style={{ color: colors.accentText }}>{jobStateLabel(t, job, percent)}</span>
@@ -145,7 +126,7 @@ export default function TrainerSearch({ appId, initialKeyword }: { appId: string
         {installed ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 36, fontSize: 13, color: colors.muted, padding: "0 14px" }}>
           <CheckIcon size={14} />{t.downloaded}</span>
           : job ? <Button ghost style={{ ...small, padding: "0 14px" }}
-            disabled={cancelling.has(job.id) || !["queued", "downloading", "extracting"].includes(job.state)}
+            disabled={cancelling.has(job.id) || !isActiveJob(job)}
             onClick={() => { void cancel(job); }}>{cancelling.has(job.id) ? t.cancelling : t.cancel}</Button>
           : <Button style={small} disabled={starting.has(trainer.id) || !library?.success} onClick={() => { void download(trainer); }}>
             {starting.has(trainer.id) ? t.starting : t.download}</Button>}

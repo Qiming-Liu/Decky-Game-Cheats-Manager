@@ -1,24 +1,17 @@
+import data from "../data/common-settings.json";
 import { LaunchOptions } from "./options";
 
 // Common settings keep no state of their own: everything shown is read from,
 // and written to, the launch-option text.
 
-export const TOGGLES = [
-  { id: "desktop", name: "SteamDeck", value: "0" },
-  { id: "wined3d", name: "PROTON_USE_WINED3D", value: "1" },
-  { id: "fsync", name: "PROTON_NO_FSYNC", value: "1" },
-  { id: "overlay", name: "LD_PRELOAD", value: "" },
-  { id: "sdl", name: "PROTON_USE_SDL", value: "1" },
-  { id: "log", name: "PROTON_LOG", value: "1" },
-] as const;
-export type ToggleId = typeof TOGGLES[number]["id"];
+export const TOGGLES: readonly { id: string; name: string; value: string }[] = data.toggles;
+export type ToggleId = string;
 
-export const LANGUAGE_NAMES = ["LANG", "HOST_LC_ALL"] as const;
-export const LANGUAGES = ["en_US", "zh_CN", "zh_TW", "ja_JP", "ko_KR", "de_DE", "fr_FR", "es_ES", "it_IT", "pt_BR", "ru_RU", "pl_PL"]
-  .map(code => `${code}.UTF-8`);
-export const AUDIO_NAME = "PULSE_LATENCY_MSEC";
-export const AUDIO_VALUES = ["30", "60", "90"] as const;
-export const COMPAT_DATA_NAME = "STEAM_COMPAT_DATA_PATH";
+export const LANGUAGE_NAMES: readonly string[] = data.language_names;
+export const LANGUAGES: readonly string[] = data.languages.map(code => `${code}${data.language_encoding}`);
+export const AUDIO_NAME = data.audio_name;
+export const AUDIO_VALUES: readonly string[] = data.audio_values;
+export const COMPAT_DATA_NAME = data.compat_data_name;
 
 /** Every variable a common setting reads or writes. */
 export const COMMON_NAMES: readonly string[] = [...TOGGLES.map(item => item.name), ...LANGUAGE_NAMES, AUDIO_NAME, COMPAT_DATA_NAME];
@@ -45,8 +38,8 @@ export function readCommon(source: string): CommonState {
   }
   return {
     toggles, occupied,
-    language: options.getEnvironment("LANG"),
-    hostLanguage: options.getEnvironment("HOST_LC_ALL"),
+    language: options.getEnvironment(LANGUAGE_NAMES[0]),
+    hostLanguage: options.getEnvironment(LANGUAGE_NAMES[1]),
     audio: options.getEnvironment(AUDIO_NAME),
     compatData: options.getEnvironment(COMPAT_DATA_NAME),
   };

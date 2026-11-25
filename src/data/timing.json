@@ -1,0 +1,16 @@
+{
+  "launch_options_timeout_ms": 5000,
+  "launch_options_confirm_attempts": 4,
+  "launch_options_confirm_delay_ms": 200,
+  "downloads_poll_ms": 1500,
+  "running_table_poll_ms": 2000,
+  "trainer_status_poll_ms": 2000,
+  "game_environment_poll_ms": 10000,
+  "table_state_poll_ms": 1000,
+  "table_no_reply_after_seconds": 20,
+  "storage_poll_ms": 3000,
+  "log_poll_ms": 3000,
+  "game_in_front_seconds": 180,
+  "game_in_front_poll_ms": 2000,
+  "trainer_dialog_poll_ms": 1000
+}

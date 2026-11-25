@@ -1,3 +1,5 @@
+import { isActiveJob } from "../domain/trainerList";
+import timing from "../data/timing.json";
 import { FileSelectionType, openFilePicker } from "@decky/api";
 import { Dropdown, Focusable, Toggle } from "@decky/ui";
 import { ReactNode, useEffect, useState } from "react";
@@ -50,7 +52,7 @@ export default function AdvancedSettings({ embedded = false }: { embedded?: bool
   const settings = useSettings();
   const engine = useCheatEngine();
   // Cheat Engine downloads belong to no game: they are the jobs without one.
-  const engineJob = useDownloads().find(job => !job.app_ids.length && ["queued", "downloading", "extracting"].includes(job.state));
+  const engineJob = useDownloads().find(job => !job.app_ids.length && isActiveJob(job));
   const [directory, setDirectory] = useState("");
   const [database, setDatabase] = useState<DatabaseState>();
   const [busy, setBusy] = useState(false);
@@ -60,7 +62,7 @@ export default function AdvancedSettings({ embedded = false }: { embedded?: bool
   useEffect(() => {
     void loadStorage().catch(error => { logFrontend("error", "Advanced settings: loading storage failed", error); setMessage("settingsFailed"); });
     // A running database update keeps changing while the page is open.
-    const timer = window.setInterval(() => { void loadStorage().catch(() => {}); }, 3000);
+    const timer = window.setInterval(() => { void loadStorage().catch(() => {}); }, timing.storage_poll_ms);
     return () => window.clearInterval(timer);
   }, []);
   async function run(work: () => Promise<void>) {
@@ -129,6 +131,9 @@ export default function AdvancedSettings({ embedded = false }: { embedded?: bool
         </Row>
         <Row dense title={t.skipLauncherCheck} description={t.skipLauncherCheckHint}>
           <Toggle value={Boolean(settings?.skip_launcher_check)} disabled={busy || !settings} onChange={value => change({ skip_launcher_check: value })} />
+        </Row>
+        <Row dense title={t.protonLog} description={t.protonLogHint}>
+          <Toggle value={Boolean(settings?.proton_log)} disabled={busy || !settings} onChange={value => change({ proton_log: value })} />
         </Row>
         <div style={{ borderTop: `1px solid ${colors.line}` }} />
 

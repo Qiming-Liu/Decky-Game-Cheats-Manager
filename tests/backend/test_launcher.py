@@ -8,6 +8,9 @@ from unittest.mock import patch
 
 import launcher
 import plugin_settings
+import cheat_engine
+import library_settings
+import library_storage
 import trainer_library
 
 
@@ -20,8 +23,9 @@ class LauncherTest(unittest.TestCase):
         for target, name, value in ((launcher, "LEGACY_PATH", str(self.root / "launch.bat")),
                                     (launcher, "STARTER", str(self.root / "plugin/bin/gcm-start.exe")),
                                     (launcher, "PIPE_WAIT", str(self.root / "plugin/bin/gcm-pipewait.dll")),
-                                    (trainer_library, "SETTINGS_PATH", str(self.root / "library.json")),
-                                    (trainer_library, "DEFAULT_DIRECTORY", str(self.library)),
+                                    (launcher, "CE_CONTEXT", str(self.root / "plugin/bin/gcm-ce-context.dll")),
+                                    (library_settings, "SETTINGS_PATH", str(self.root / "library.json")),
+                                    (library_settings, "DEFAULT_DIRECTORY", str(self.library)),
                                     (plugin_settings, "PATH", str(self.root / "settings.json"))):
             patcher = patch.object(target, name, value)
             patcher.start()
@@ -38,7 +42,7 @@ class LauncherTest(unittest.TestCase):
         # Hidden, so the library does not list it as a trainer.
         self.assertEqual(trainer_library.scan()["trainers"], [])
         # Without a writable library, new launch options use the old place.
-        trainer_library.write_json(trainer_library.SETTINGS_PATH, {"directory": str(self.root / "launch.bat" / "x")})
+        library_storage.write_json(library_settings.SETTINGS_PATH, {"directory": str(self.root / "launch.bat" / "x")})
         self.assertEqual(launcher.script(), {"path": str(self.root / "launch.bat"), "legacy": []})
 
     def test_relative_programs_start_from_the_script_folder(self):
@@ -52,16 +56,22 @@ class LauncherTest(unittest.TestCase):
         # Tables are handed to Cheat Engine, named by the --ce pair before the programs.
         self.assertIn('if not "%GCM_CE:~1,1%"==":" set "GCM_CE=%~dp0%~2"\r\n', text)
         self.assertIn('if /i "%GCM_TYPE%"==".ct" goto table\r\n', text)
-        self.assertIn(f'if not exist "%GCM_CE_DIR%{trainer_library.MANAGED_CE_MARKER}" goto started\r\n', text)
+        self.assertIn(f'if not exist "%GCM_CE_DIR%{cheat_engine.MANAGED_MARKER}" goto started\r\n', text)
         # Cheat Engine is told the table, and where to log, by ASCII short paths.
         self.assertIn('for %%i in ("%GCM_PROGRAM%") do set "GCM_TABLE=%%~si"\r\n', text)
+        self.assertIn('for %%i in ("%GCM_START%") do set "GCM_STARTER=%%~si"\r\n', text)
         self.assertIn('set "GCM_LOG=%%~dpsiautorun\\decky_gcm.log"\r\nset "LANG=en_US"\r\nreg add "HKCU\\Software\\Cheat Engine\\ceshare" /v enabled /d 0 /f >nul 2>&1', text)
         # The welcome question and the table Lua question are answered once; a later choice stays.
         for name in ("First Time User", "LuaScriptAction"):
             self.assertIn(f'reg query "HKCU\\Software\\Cheat Engine" /v "{name}" >nul 2>&1 || '
                           f'reg add "HKCU\\Software\\Cheat Engine" /v "{name}" /t REG_DWORD /d 0 /f >nul 2>&1\r\n', text)
-        self.assertIn('"%GCM_START%" "%GCM_CE%" "%GCM_PROGRAM%" && goto started\r\n'
-                      ':direct\r\nstart "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%GCM_PROGRAM%"\r\n:started', text)
+        # A signed table is not handed over: the bridge opens it without its signature.
+        self.assertIn('set "GCM_UNSIGN="\r\nif /i "%GCM_TYPE%"==".ct" findstr /m /c:"<Signature" "%GCM_PROGRAM%" '
+                      '>nul 2>&1 && set "GCM_UNSIGN=1"\r\n', text)
+        self.assertIn('if defined GCM_UNSIGN "%GCM_START%" --ce "%GCM_CE%" && goto started\r\n'
+                      'if not defined GCM_UNSIGN "%GCM_START%" --ce "%GCM_CE%" "%GCM_PROGRAM%" && goto started\r\n'
+                      ':direct\r\nif defined GCM_UNSIGN start "" /d "%GCM_CE_DIR%" "%GCM_CE%"\r\n'
+                      'if not defined GCM_UNSIGN start "" /d "%GCM_CE_DIR%" "%GCM_CE%" "%GCM_PROGRAM%"\r\n:started', text)
         self.assertNotIn("ping", text)
         plugin_settings.update({"launch_delay": 10, "allow_multiple": True})
         text = self.read()
@@ -104,6 +114,20 @@ class LauncherTest(unittest.TestCase):
         self.read()
         copies = (self.root / ".gcm-pipewait.dll", self.library / ".gcm-pipewait.dll")
         self.assertEqual([copy.read_bytes() for copy in copies], [b"MZ hook"] * 2)
+        library.unlink()
+        self.read()
+        self.assertFalse(any(copy.exists() for copy in copies))
+
+    def test_the_context_adapter_is_updated_and_removed_with_the_starter(self):
+        library = Path(launcher.CE_CONTEXT)
+        library.parent.mkdir(parents=True)
+        library.write_bytes(b"MZ context v1")
+        copies = (self.root / launcher.CE_CONTEXT_NAME, self.library / launcher.CE_CONTEXT_NAME)
+        self.read()
+        self.assertEqual([copy.read_bytes() for copy in copies], [b"MZ context v1"] * 2)
+        library.write_bytes(b"MZ context v2")
+        self.read()
+        self.assertEqual([copy.read_bytes() for copy in copies], [b"MZ context v2"] * 2)
         library.unlink()
         self.read()
         self.assertFalse(any(copy.exists() for copy in copies))

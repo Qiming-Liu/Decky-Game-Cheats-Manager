@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import main
 import trainer_download
+import library_storage
+import trainer_cache
 import trainer_library
 
 from library import LibraryCase
@@ -28,7 +30,9 @@ class CacheTest(LibraryCase):
         with patch("trainer_download.data_source.get_signed_download_url") as signer, patch("trainer_download.http_download.download") as download:
             restored = asyncio.run(run())
         self.assertEqual(restored["state"], "done", restored["error"])
-        self.assertEqual(restored["path"], original["path"])
+        # The copy returns under its old name, in the folder of the game that asked for it.
+        self.assertEqual(Path(restored["path"]), self.library.resolve() / "Elden Ring (42)" / Path(original["path"]).name)
+        self.assertFalse(Path(original["path"]).parent.exists())
         signer.assert_not_called()
         download.assert_not_called()
         self.assertFalse(cached.exists())
@@ -58,7 +62,7 @@ class CacheTest(LibraryCase):
         trainer_library.cleanup_trash()
         self.assertFalse((legacy / cached.name).exists())
         restored = trainer_library.restore_trainer(trainer, ["42"])
-        self.assertEqual(str(restored), original["path"])
+        self.assertEqual(restored, self.library.resolve() / Path(original["path"]).name)
         self.assertEqual((legacy / "Trainer.exe").read_bytes(), b"user trainer")
 
     def test_unowned_hidden_trash_is_never_cleaned_or_used(self):
@@ -66,15 +70,15 @@ class CacheTest(LibraryCase):
         trash.mkdir()
         item = trash / ("a" * 32)
         item.mkdir()
-        trainer_library.write_json(item / trainer_library.TRASH_RECORD, {
-            "schema_version": 1, "deleted_at": time.time() - trainer_library.TRASH_MAX_AGE - 1,
+        library_storage.write_json(item / trainer_cache.TRASH_RECORD, {
+            "schema_version": 1, "deleted_at": time.time() - trainer_cache.TRASH_MAX_AGE - 1,
         })
         trainer_library.cleanup_trash()
         self.assertTrue(item.exists())
         folder = self.library / "Managed"
         folder.mkdir()
         (folder / "Trainer.exe").write_bytes(b"program")
-        trainer_library.write_json(folder / trainer_library.METADATA, {"schema_version": 1, "app_ids": ["42"]})
+        library_storage.write_json(folder / library_storage.METADATA, {"schema_version": 1, "app_ids": ["42"]})
         entry = trainer_library.scan()["trainers"][0]
         with self.assertRaisesRegex(ValueError, "not owned"):
             trainer_library.delete(entry["id"], str(self.library), "42")
@@ -97,9 +101,9 @@ class CacheTest(LibraryCase):
 
     def test_page_cleanup_removes_expired_cache_without_server_requests(self):
         _, cached, _ = self._trash_download()
-        record = trainer_library.read_json(cached / trainer_library.TRASH_RECORD)
-        record["deleted_at"] = time.time() - trainer_library.TRASH_MAX_AGE - 1
-        trainer_library.write_json(cached / trainer_library.TRASH_RECORD, record)
+        record = library_storage.read_json(cached / trainer_cache.TRASH_RECORD)
+        record["deleted_at"] = time.time() - trainer_cache.TRASH_MAX_AGE - 1
+        library_storage.write_json(cached / trainer_cache.TRASH_RECORD, record)
         with patch("trainer_download.data_source.get_signed_download_url") as signer:
             asyncio.run(main.Plugin().cleanup_trash())
         self.assertFalse(cached.exists())
@@ -107,18 +111,18 @@ class CacheTest(LibraryCase):
 
     def test_trash_migration_preserves_age_and_restore_location(self):
         _, cached, trainer = self._trash_download()
-        record = trainer_library.read_json(cached / trainer_library.TRASH_RECORD)
+        record = library_storage.read_json(cached / trainer_cache.TRASH_RECORD)
         other = self.root / "new-library"
         other.mkdir()
         trainer_library.set_directory(str(other))
-        self.assertEqual(trainer_library.read_json(other / ".gcm-trash" / cached.name / trainer_library.TRASH_RECORD), record)
+        self.assertEqual(library_storage.read_json(other / ".gcm-trash" / cached.name / trainer_cache.TRASH_RECORD), record)
         restored = trainer_library.restore_trainer(trainer, ["42"])
         self.assertEqual(restored.parent, other.resolve())
         self.assertEqual(list(self.library.iterdir()), [])
 
     def test_restore_conflict_does_not_replace_existing_files(self):
         original, cached, trainer = self._trash_download()
-        destination = Path(original["path"])
+        destination = self.library / Path(original["path"]).name
         destination.mkdir()
         (destination / "user.exe").write_bytes(b"keep")
         self.assertIsNone(trainer_library.restore_trainer(trainer, ["42"]))
@@ -139,9 +143,9 @@ class CacheTest(LibraryCase):
         unrelated.write_bytes(b"keep")
         trainer_library.cleanup_trash()
         self.assertTrue(cached.exists())
-        record = trainer_library.read_json(cached / trainer_library.TRASH_RECORD)
-        record["deleted_at"] = time.time() - trainer_library.TRASH_MAX_AGE - 1
-        trainer_library.write_json(cached / trainer_library.TRASH_RECORD, record)
+        record = library_storage.read_json(cached / trainer_cache.TRASH_RECORD)
+        record["deleted_at"] = time.time() - trainer_cache.TRASH_MAX_AGE - 1
+        library_storage.write_json(cached / trainer_cache.TRASH_RECORD, record)
         trainer_library.cleanup_trash()
         self.assertFalse(cached.exists())
         self.assertEqual(unrelated.read_bytes(), b"keep")

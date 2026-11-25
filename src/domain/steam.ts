@@ -1,3 +1,4 @@
+import timing from "../data/timing.json";
 import { LaunchOptions } from "./options";
 
 // Steam's EAppType value for non-Steam shortcuts.
@@ -36,7 +37,7 @@ export function readLaunchDetails(appId: string): Promise<LaunchDetails> {
     let settled = false;
     const timer = window.setTimeout(() => {
       settled = true; subscription?.unregister(); reject(new Error("Steam did not return the game's launch options."));
-    }, 5000);
+    }, timing.launch_options_timeout_ms);
     try {
       subscription = SteamClient.Apps.RegisterForAppDetails(Number(appId), details => {
         const value = shortcut ? details?.strShortcutLaunchOptions : details?.strLaunchOptions;
@@ -64,10 +65,10 @@ export async function writeLaunchOptions(appId: string, expected: string, edit: 
   if (isShortcut(appId)) SteamClient.Apps.SetShortcutLaunchOptions(Number(appId), next);
   else SteamClient.Apps.SetAppLaunchOptions(Number(appId), next);
   // Confirm Steam has published the write before reporting success.
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < timing.launch_options_confirm_attempts; attempt++) {
     const saved = await readLaunchOptions(appId);
     if (saved === next) return saved;
-    await new Promise(resolve => window.setTimeout(resolve, 200));
+    await new Promise(resolve => window.setTimeout(resolve, timing.launch_options_confirm_delay_ms));
   }
   throw new Error("Steam has not confirmed the change. Refresh before trying again.");
 }

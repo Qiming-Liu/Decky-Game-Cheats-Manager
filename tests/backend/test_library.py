@@ -6,6 +6,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import trainer_download
+import cheat_engine
+import library_settings
+import library_storage
 import trainer_library
 
 from library import LibraryCase
@@ -34,7 +37,8 @@ class LibraryTest(LibraryCase):
         (folder / "Trainer.exe").write_bytes(b"program")
         (self.library / "Standalone.exe").write_bytes(b"program")
         alias = str(self.library / ".." / self.library.name)
-        with patch.object(trainer_library, "directory", return_value=alias):
+        with patch.object(library_settings, "directory", return_value=alias), \
+                patch.object(trainer_library, "directory", return_value=alias):
             for item in trainer_library.scan()["trainers"]:
                 executable = trainer_library.executable(item["id"], item["files"][0], alias)
                 # The frontend recognizes a selected executable by its entry path.
@@ -45,7 +49,7 @@ class LibraryTest(LibraryCase):
         folder.mkdir()
         (folder / "Trainer.exe").write_bytes(b"program")
         (folder / "support.dll").write_bytes(b"support")
-        trainer_library.write_json(folder / trainer_library.METADATA,
+        library_storage.write_json(folder / library_storage.METADATA,
                                    {"schema_version": 1, "game_name": "Example", "app_ids": ["42"]})
         target = self.root / "new"
         target.mkdir()
@@ -75,7 +79,7 @@ class LibraryTest(LibraryCase):
         (self.library / "trainer.CT").write_bytes(b"original")
         target = self.root / "new"
         target.mkdir()
-        with patch("trainer_library.write_json", side_effect=OSError("settings failed")):
+        with patch("library_settings.write_json", side_effect=OSError("settings failed")):
             with self.assertRaises(OSError):
                 trainer_library.set_directory(str(target))
         self.assertEqual(Path(trainer_library.directory()), self.library.resolve())
@@ -124,45 +128,45 @@ class LibraryTest(LibraryCase):
         self.assertEqual(trainer_library.executable(table["id"], "Table.CT", str(self.library)), str((self.root / "Table.CT").resolve()))
 
     def test_cheat_engine_is_shared_and_hidden_from_game_rows(self):
-        self.assertFalse(trainer_library.cheat_engine()["installed"])
+        self.assertFalse(cheat_engine.status()["installed"])
         folder = self.library / "Cheat Engine 7.5"
         (folder / "autorun").mkdir(parents=True)
         (folder / "Cheat Engine.exe").write_bytes(b"program")
-        trainer_library.write_json(folder / trainer_library.METADATA, {
+        library_storage.write_json(folder / library_storage.METADATA, {
             "schema_version": 1, "version": "7.5", "trainer_id": "engine", "app_ids": [],
         })
         self.assertEqual(trainer_library.scan("42", "Cheat Engine")["trainers"], [])
-        engine = trainer_library.cheat_engine()
+        engine = cheat_engine.status()
         self.assertEqual((engine["installed"], engine["version"], engine["path"]), (True, "7.5", str(folder.resolve() / "Cheat Engine.exe")))
         self.assertFalse(engine["bridge"])
-        self.assertTrue(trainer_library.install_bridge(folder))
-        self.assertTrue(trainer_library.cheat_engine()["bridge"])
-        self.assertEqual((folder / "autorun" / "decky_gcm.lua").read_bytes(), (trainer_library.RESOURCES / "decky_gcm.lua").read_bytes())
-        self.assertTrue((folder / trainer_library.MANAGED_CE_MARKER).is_file())
+        self.assertTrue(cheat_engine.install_bridge(folder))
+        self.assertTrue(cheat_engine.status()["bridge"])
+        self.assertEqual((folder / "autorun" / "decky_gcm.lua").read_bytes(), (cheat_engine.RESOURCES / "decky_gcm.lua").read_bytes())
+        self.assertTrue((folder / cheat_engine.MANAGED_MARKER).is_file())
         # Older settings may still reference an external installation.
         linked = self.root / "MyCE"
         linked.mkdir()
         (linked / "Cheat Engine.exe").write_bytes(b"program")
-        trainer_library.write_json(trainer_library.SETTINGS_PATH, {
-            **trainer_library.read_json(trainer_library.SETTINGS_PATH), "cheat_engine": str(linked),
+        library_storage.write_json(library_settings.SETTINGS_PATH, {
+            **library_storage.read_json(library_settings.SETTINGS_PATH), "cheat_engine": str(linked),
         })
-        self.assertEqual(trainer_library.cheat_engine()["folder"], str(folder.resolve()))
+        self.assertEqual(cheat_engine.status()["folder"], str(folder.resolve()))
         # The bridge brings the Chinese language pack along; a pack already there is kept as it is.
         resources = self.root / "resources"
         (resources / "ce-languages" / "zh_CN").mkdir(parents=True)
         (resources / "ce-languages" / "zh_CN" / "cheatengine-x86_64.po").write_bytes(b"pack")
         (resources / "decky_gcm.lua").write_bytes(b"bridge")
-        with patch.object(trainer_library, "RESOURCES", resources):
-            self.assertTrue(trainer_library.install_bridge(folder))
+        with patch.object(cheat_engine, "RESOURCES", resources):
+            self.assertTrue(cheat_engine.install_bridge(folder))
             pack = folder / "languages" / "zh_CN" / "cheatengine-x86_64.po"
             self.assertEqual(pack.read_bytes(), b"pack")
             pack.write_bytes(b"own")
-            self.assertTrue(trainer_library.install_bridge(folder))
+            self.assertTrue(cheat_engine.install_bridge(folder))
             self.assertEqual(pack.read_bytes(), b"own")
-            self.assertFalse(trainer_library.install_bridge(linked))
+            self.assertFalse(cheat_engine.install_bridge(linked))
         self.assertFalse((linked / "autorun").exists())
-        trainer_library.remove_cheat_engine()
-        self.assertFalse(trainer_library.cheat_engine()["installed"])
+        cheat_engine.remove()
+        self.assertFalse(cheat_engine.status()["installed"])
         self.assertFalse(folder.exists())
         self.assertTrue((linked / "Cheat Engine.exe").is_file())
 
@@ -171,28 +175,28 @@ class LibraryTest(LibraryCase):
             folder = self.library / name
             folder.mkdir()
             (folder / "Cheat Engine.exe").write_bytes(content)
-            trainer_library.write_json(folder / trainer_library.METADATA, {
+            library_storage.write_json(folder / library_storage.METADATA, {
                 "schema_version": 1, "version": "7.5", "trainer_id": "engine", "app_ids": [],
             })
             return folder
 
         old = copy("Cheat Engine 7.5 [aaaaaaaa]", b"old")
         # Alone, a download stays where it is.
-        self.assertEqual(trainer_library.replace_cheat_engine(old), old.resolve())
+        self.assertEqual(cheat_engine.replace(old), old.resolve())
         new = copy("Cheat Engine 7.5 [bbbbbbbb]", b"new")
-        final = trainer_library.replace_cheat_engine(new)
+        final = cheat_engine.replace(new)
         # One copy is left, under the folder name launch options already use.
         self.assertEqual(final.resolve(), old.resolve())
         self.assertEqual((old / "Cheat Engine.exe").read_bytes(), b"new")
         self.assertFalse(new.exists())
-        self.assertEqual(trainer_library.cheat_engine()["folder"], str(old.resolve()))
+        self.assertEqual(cheat_engine.status()["folder"], str(old.resolve()))
         self.assertEqual(sum(1 for item in trainer_library.scan()["trainers"] if item.get("cheat_engine")), 1)
 
     def test_local_file_inside_library_is_not_listed_twice(self):
         folder = self.library / "Example Trainer"
         folder.mkdir()
         (folder / "Trainer.exe").write_bytes(b"program")
-        trainer_library.write_json(folder / trainer_library.METADATA, {"schema_version": 1, "app_ids": ["42"]})
+        library_storage.write_json(folder / library_storage.METADATA, {"schema_version": 1, "app_ids": ["42"]})
         trainer_library.link_file(str(folder / "Trainer.exe"), "42", "Example", str(self.library))
         self.assertEqual(len(trainer_library.scan("42")["trainers"]), 1)
 
@@ -223,7 +227,7 @@ class LibraryTest(LibraryCase):
         item = trainer_library.scan()["trainers"][0]
         with self.assertRaisesRegex(ValueError, "Only trainers"):
             trainer_library.delete(item["id"], str(self.library), "42")
-        trainer_library.write_json(folder / trainer_library.METADATA, {"schema_version": 1, "app_ids": ["42", "43"]})
+        library_storage.write_json(folder / library_storage.METADATA, {"schema_version": 1, "app_ids": ["42", "43"]})
         with self.assertRaisesRegex(ValueError, "shared"):
             trainer_library.delete(item["id"], str(self.library), "42")
         self.assertTrue((folder / "Trainer.exe").exists())
@@ -233,7 +237,7 @@ class LibraryTest(LibraryCase):
         folder = self.library / "Elden Ring Trainer"
         folder.mkdir()
         (folder / "trainer.exe").write_bytes(b"trainer")
-        trainer_library.write_json(folder / trainer_library.METADATA, {
+        library_storage.write_json(folder / library_storage.METADATA, {
             "app_ids": 1245620, "game_name": ["wrong type"], "trainer_name": 42,
         })
         self.assertEqual(len(trainer_library.scan("1245620", "Elden Ring")["trainers"]), 1)

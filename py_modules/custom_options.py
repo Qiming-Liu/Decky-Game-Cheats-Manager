@@ -10,22 +10,18 @@ import re
 import threading
 
 import decky
+import plugin_data
 from library_storage import read_json, write_json
 
 PATH = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "custom_options.json")
-MAX_OPTIONS = 200
-MAX_DEFINITIONS = 50
+_DATA = plugin_data.load("custom-options")
+MAX_OPTIONS = _DATA["max_options"]
+MAX_DEFINITIONS = _DATA["max_definitions"]
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _lock = threading.Lock()
 
 # Launchers installed by other tools. Names are shown by the frontend.
-PRESETS = [
-    {"id": "preset-lsfg", "preset": "lsfg", "name": "", "definitions": ["~/lsfg"]},
-    {"id": "preset-optiscaler", "preset": "optiscaler", "name": "", "definitions": ["~/fgmod/fgmod"]},
-    {"id": "preset-optiscaler-remove", "preset": "optiscalerRemove", "name": "",
-     "definitions": ["~/fgmod/fgmod-uninstaller.sh"]},
-    {"id": "preset-mako", "preset": "mako", "name": "", "definitions": ["~/.local/bin/mako-run"]},
-]
+PRESETS = _DATA["presets"]
 _PRESET_KEYS = {item["preset"] for item in PRESETS}
 
 
@@ -48,10 +44,10 @@ def _clean(options) -> list[dict]:
         option_id, name, definitions = item.get("id"), item.get("name", ""), item.get("definitions")
         if not isinstance(option_id, str) or not _ID.match(option_id) or option_id in seen:
             raise ValueError("Invalid custom launch options.")
-        if not isinstance(name, str) or len(name) > 80 or any(ord(c) < 32 for c in name):
+        if not isinstance(name, str) or len(name) > _DATA["max_name_length"] or any(ord(c) < 32 for c in name):
             raise ValueError("Invalid custom launch options.")
         if (not isinstance(definitions, list) or not 0 < len(definitions) <= MAX_DEFINITIONS
-                or any(not isinstance(d, str) or not d.strip() or len(d) > 1024 or "\n" in d for d in definitions)):
+                or any(not isinstance(d, str) or not d.strip() or len(d) > _DATA["max_definition_length"] or "\n" in d for d in definitions)):
             raise ValueError("Invalid custom launch options.")
         seen.add(option_id)
         option = {"id": option_id, "name": name.strip(), "definitions": definitions}
